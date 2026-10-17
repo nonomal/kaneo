@@ -1,41 +1,50 @@
-import { priorityColorsTaskCard } from "@/constants/priority-colors";
-import useUpdateTask from "@/hooks/mutations/task/use-update-task";
-import { cn } from "@/lib/cn";
-import toKebabCase from "@/lib/to-kebab-case";
-import type { ProjectWithTasks } from "@/types/project";
-import type Task from "@/types/task";
 import {
+  closestCorners,
   DndContext,
   type DragEndEvent,
   type DragOverEvent,
   DragOverlay,
   type DragStartEvent,
-  KeyboardSensor,
   MouseSensor,
   TouchSensor,
   type UniqueIdentifier,
-  closestCorners,
-  useDroppable,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
 import { snapCenterToCursor } from "@dnd-kit/modifiers";
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { Archive, ChevronRight, Clock, Flag, Plus } from "lucide-react";
-import { useState } from "react";
-import { toast } from "sonner";
+import { produce } from "immer";
+import { Archive, Clock, Flag } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { useReducedMotion } from "framer-motion";
+import { useTranslation } from "react-i18next";
+import { priorityColorsTaskCard } from "@/constants/priority-colors";
+import { useUpdateTask } from "@/hooks/mutations/task/use-update-task";
+import { useTaskViewShortcuts } from "@/components/project/task-view-keys/use-task-view-shortcuts";
+import { cn } from "@/lib/cn";
+import useBacklogBulkSelectionStore from "@/store/backlog-bulk-selection";
+import useProjectStore from "@/store/project";
+import type { ProjectWithTasks } from "@/types/project";
+import BacklogBulkToolbar from "../bulk-selection/backlog-bulk-toolbar";
 import CreateTaskModal from "../shared/modals/create-task-modal";
-import BacklogTaskRow from "./backlog-task-row";
+import BacklogSection from "./backlog-section";
 
-interface BacklogListViewProps {
+type BacklogListViewProps = {
   project?: ProjectWithTasks;
-}
+  disableDragDrop?: boolean;
+};
 
-function BacklogListView({ project }: BacklogListViewProps) {
+function BacklogListView({
+  project,
+  disableDragDrop = false,
+}: BacklogListViewProps) {
+  const { t } = useTranslation();
+  const reduceMotion = useReducedMotion();
   const { mutate: updateTask } = useUpdateTask();
+  const setProject = useProjectStore((state) => state.setProject);
+  const setAvailableTasks = useBacklogBulkSelectionStore(
+    (state) => state.setAvailableTasks,
+  );
+  const clearFocus = useBacklogBulkSelectionStore((state) => state.clearFocus);
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
   const [overColumnId, setOverColumnId] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<
@@ -47,17 +56,37 @@ function BacklogListView({ project }: BacklogListViewProps) {
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [activeColumn, setActiveColumn] = useState<string | null>(null);
 
+  useEffect(() => {
+    if (project) {
+      const visibleTaskIds: string[] = [];
+      if (expandedSections.planned) {
+        visibleTaskIds.push(
+          ...(project.plannedTasks || []).map((task) => task.id),
+        );
+      }
+      if (expandedSections.archived) {
+        visibleTaskIds.push(
+          ...(project.archivedTasks || []).map((task) => task.id),
+        );
+      }
+      setAvailableTasks(visibleTaskIds);
+    }
+  }, [project, expandedSections, setAvailableTasks]);
+
+  useEffect(() => {
+    clearFocus();
+  }, [clearFocus]);
+
   const sensors = useSensors(
     useSensor(MouseSensor, {
-      activationConstraint: { distance: 8 },
+      activationConstraint: { distance: disableDragDrop ? 999999 : 8 },
     }),
     useSensor(TouchSensor, {
       activationConstraint: {
-        delay: 200,
+        delay: disableDragDrop ? 999999 : 200,
         tolerance: 8,
       },
     }),
-    useSensor(KeyboardSensor),
   );
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -89,15 +118,8 @@ function BacklogListView({ project }: BacklogListViewProps) {
     }
   };
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    setActiveId(null);
-    setOverColumnId(null);
-
-    if (!over || !project) return;
-
-    const activeTaskId = active.id.toString();
-    const overId = over.id.toString();
+  const moveTask = (activeTaskId: string, overId: string) => {
+    if (!project) return;
 
     const plannedTasks = project.plannedTasks || [];
     const archivedTasks = project.archivedTasks || [];
@@ -118,117 +140,144 @@ function BacklogListView({ project }: BacklogListViewProps) {
       }
     }
 
-    if (activeTask.status === targetSection) return;
+    const updatedProject = produce(project, (draft) => {
+      const sourceSection =
+        activeTask.status === "planned"
+          ? draft.plannedTasks || []
+          : draft.archivedTasks || [];
 
-    updateTask({
-      ...activeTask,
-      status: targetSection,
+      const sourceTaskIndex = sourceSection.findIndex(
+        (task) => task.id === activeTaskId,
+      );
+      const task = sourceSection[sourceTaskIndex];
+
+      if (!task) return;
+
+      if (activeTask.status === "planned") {
+        draft.plannedTasks =
+          draft.plannedTasks?.filter((t) => t.id !== activeTaskId) || [];
+      } else {
+        draft.archivedTasks =
+          draft.archivedTasks?.filter((t) => t.id !== activeTaskId) || [];
+      }
+
+      if (activeTask.status === targetSection) {
+        const targetSectionTasks =
+          activeTask.status === "planned"
+            ? draft.plannedTasks || []
+            : draft.archivedTasks || [];
+
+        let destinationIndex = targetSectionTasks.findIndex(
+          (t) => t.id === overId,
+        );
+
+        if (sourceTaskIndex <= destinationIndex) {
+          destinationIndex += 1;
+        }
+
+        if (activeTask.status === "planned") {
+          draft.plannedTasks?.splice(destinationIndex, 0, task);
+        } else {
+          draft.archivedTasks?.splice(destinationIndex, 0, task);
+        }
+
+        const finalTasks =
+          activeTask.status === "planned"
+            ? draft.plannedTasks || []
+            : draft.archivedTasks || [];
+
+        finalTasks.forEach((t, index) => {
+          updateTask({
+            ...t,
+            position: index,
+          });
+        });
+      } else {
+        task.status = targetSection;
+
+        if (targetSection === "planned") {
+          draft.plannedTasks = [...(draft.plannedTasks || []), task];
+        } else {
+          draft.archivedTasks = [...(draft.archivedTasks || []), task];
+        }
+
+        const updatedTasks =
+          targetSection === "planned"
+            ? draft.plannedTasks || []
+            : draft.archivedTasks || [];
+
+        updatedTasks.forEach((t, index) => {
+          updateTask({
+            ...t,
+            status: targetSection,
+            position: index,
+          });
+        });
+
+        const sourceTasks =
+          activeTask.status === "planned"
+            ? draft.plannedTasks || []
+            : draft.archivedTasks || [];
+
+        sourceTasks.forEach((t, index) => {
+          updateTask({
+            ...t,
+            position: index,
+          });
+        });
+      }
     });
 
-    toast.success(`Task moved to ${targetSection}`);
+    setProject(updatedProject);
   };
 
-  const toggleSection = (sectionId: string) => {
+  const handleDragEnd = ({ active, over }: DragEndEvent) => {
+    setActiveId(null);
+    setOverColumnId(null);
+    if (over) moveTask(active.id.toString(), over.id.toString());
+  };
+
+  const toggleSection = useCallback((sectionId: string) => {
     setExpandedSections((prev) => ({
       ...prev,
       [sectionId]: !prev[sectionId],
     }));
-  };
+  }, []);
 
-  function BacklogSection({
-    sectionId,
-    title,
-    icon: IconComponent,
-    tasks,
-    showAddButton = false,
-  }: {
-    sectionId: string;
-    title: string;
-    icon: typeof Clock;
-    tasks: Task[];
-    showAddButton?: boolean;
-  }) {
-    const { setNodeRef } = useDroppable({
-      id: sectionId,
-      data: {
-        type: "column",
-        column: { id: sectionId, name: title },
-      },
+  const toggleAllSections = useCallback(() => {
+    setExpandedSections((prev) => {
+      const expand = !prev.planned && !prev.archived;
+      return { planned: expand, archived: expand };
     });
+  }, []);
 
-    const showDropIndicator = activeId && overColumnId === sectionId;
+  useTaskViewShortcuts({
+    layout: "list",
+    selection: useBacklogBulkSelectionStore,
+    getGroups: () => [
+      {
+        id: "planned",
+        taskIds: (project?.plannedTasks ?? []).map((task) => task.id),
+        collapsed: !expandedSections.planned,
+      },
+      {
+        id: "archived",
+        taskIds: (project?.archivedTasks ?? []).map((task) => task.id),
+        collapsed: !expandedSections.archived,
+      },
+    ],
+    project,
+    enabled: activeId === null,
+    canMove: !disableDragDrop,
+    onMove: moveTask,
+    onToggleGroup: toggleSection,
+    onToggleAllGroups: toggleAllSections,
+  });
 
-    return (
-      <div
-        className={cn(
-          "border-b border-zinc-200 dark:border-zinc-800/50 transition-all duration-200 overflow-auto",
-          showDropIndicator &&
-            "border-l-4 border-l-indigo-500 dark:border-l-indigo-400 bg-indigo-50/30 dark:bg-indigo-950/10",
-        )}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between py-2 px-4 bg-zinc-100/60 dark:bg-zinc-800/20 border-b border-zinc-200/50 dark:border-zinc-800/30">
-          <button
-            type="button"
-            onClick={() => toggleSection(sectionId)}
-            className="flex items-center gap-2 text-sm font-medium text-zinc-800 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors"
-          >
-            <ChevronRight
-              className={cn(
-                "w-3 h-3 transition-transform",
-                expandedSections[sectionId] && "rotate-90",
-              )}
-            />
-            <div className="flex items-center gap-2 h-4">
-              <IconComponent className="w-4 h-4 flex-shrink-0 text-zinc-500 dark:text-zinc-400" />
-              <div className="flex items-center gap-1">
-                <span className="mt-1 mr-1">{title}</span>
-                <span className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-                  {tasks.length}
-                </span>
-              </div>
-            </div>
-          </button>
-
-          <div className="flex items-center gap-1">
-            {showAddButton && (
-              <button
-                type="button"
-                onClick={() => {
-                  setIsTaskModalOpen(true);
-                  setActiveColumn("planned");
-                }}
-                className="p-1 hover:bg-zinc-200/70 dark:hover:bg-zinc-700 rounded text-zinc-600 hover:text-zinc-800 dark:text-zinc-500 dark:hover:text-zinc-300 transition-colors"
-                title="Add task"
-              >
-                <Plus className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Tasks */}
-        {expandedSections[sectionId] && (
-          <div ref={setNodeRef} className="bg-white dark:bg-transparent">
-            <SortableContext
-              items={tasks}
-              strategy={verticalListSortingStrategy}
-            >
-              {tasks.map((task) => (
-                <BacklogTaskRow key={task.id} task={task} />
-              ))}
-            </SortableContext>
-
-            {tasks.length === 0 && (
-              <div className="py-6 px-4 text-center text-xs text-zinc-400 dark:text-zinc-500">
-                No {title.toLowerCase()} tasks
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  }
+  const openPlannedTaskModal = useCallback(() => {
+    setIsTaskModalOpen(true);
+    setActiveColumn("planned");
+  }, []);
 
   if (!project) {
     return null;
@@ -244,34 +293,45 @@ function BacklogListView({ project }: BacklogListViewProps) {
   return (
     <DndContext
       sensors={sensors}
+      accessibility={{
+        screenReaderInstructions: {
+          draggable: t("tasks:board.keyboardInstructions"),
+        },
+      }}
       collisionDetection={closestCorners}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
       modifiers={[snapCenterToCursor]}
     >
-      <div className="w-full h-full overflow-auto bg-zinc-50/30 dark:bg-transparent">
-        <div className="divide-y divide-zinc-200 dark:divide-zinc-800/50">
+      <div className="w-full h-full overflow-auto bg-muted/20">
+        <div className="divide-y divide-border/50">
           <BacklogSection
             sectionId="planned"
-            title="Planned"
+            title={t("tasks:backlog.sections.planned")}
             icon={Clock}
             tasks={plannedTasks}
-            showAddButton={true}
+            isExpanded={expandedSections.planned}
+            showDropIndicator={activeId !== null && overColumnId === "planned"}
+            onToggle={toggleSection}
+            onAddTask={openPlannedTaskModal}
           />
 
           <BacklogSection
             sectionId="archived"
-            title="Archived"
+            title={t("tasks:backlog.sections.archived")}
             icon={Archive}
             tasks={archivedTasks}
+            isExpanded={expandedSections.archived}
+            showDropIndicator={activeId !== null && overColumnId === "archived"}
+            onToggle={toggleSection}
           />
         </div>
       </div>
 
-      <DragOverlay>
+      <DragOverlay dropAnimation={reduceMotion ? null : undefined}>
         {activeTask && (
-          <div className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-lg p-2 max-w-[200px] cursor-grabbing">
+          <div className="bg-card border border-border rounded-lg shadow-lg p-2 max-w-[200px] cursor-grabbing">
             <div className="flex items-center gap-2">
               <div className="flex-shrink-0">
                 <Flag
@@ -286,10 +346,10 @@ function BacklogListView({ project }: BacklogListViewProps) {
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] font-mono text-zinc-400 dark:text-zinc-500">
+                  <span className="text-[10px] font-mono text-muted-foreground">
                     {project?.slug}-{activeTask.number}
                   </span>
-                  <span className="text-xs text-zinc-900 dark:text-zinc-100 truncate">
+                  <span className="text-xs text-foreground truncate">
                     {activeTask.title}
                   </span>
                 </div>
@@ -301,9 +361,12 @@ function BacklogListView({ project }: BacklogListViewProps) {
 
       <CreateTaskModal
         open={isTaskModalOpen}
+        projectId={project?.id}
         onClose={() => setIsTaskModalOpen(false)}
-        status={toKebabCase(activeColumn ?? "planned")}
+        status={activeColumn ?? "planned"}
       />
+
+      <BacklogBulkToolbar />
     </DndContext>
   );
 }

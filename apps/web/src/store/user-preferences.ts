@@ -1,6 +1,15 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
+export const WEEK_START_DAYS = [0, 1, 6] as const;
+export type WeekStartDay = (typeof WEEK_START_DAYS)[number];
+
+export function isWeekStartDay(value: number): value is WeekStartDay {
+  return WEEK_START_DAYS.some((day) => day === value);
+}
+
+export type TaskLayout = "board" | "list" | "calendar" | "gantt";
+
 type UserPreferencesStore = {
   theme: "light" | "dark" | "system";
   setTheme: (
@@ -11,8 +20,14 @@ type UserPreferencesStore = {
   viewMode: "board" | "list";
   setViewMode: (mode: "board" | "list") => void;
 
+  taskLayout: TaskLayout;
+  setTaskLayout: (layout: TaskLayout) => void;
+
   compactMode: boolean;
   setCompactMode: (compact: boolean) => void;
+
+  advancedSettings: boolean;
+  setAdvancedSettings: (enabled: boolean) => void;
 
   showTaskNumbers: boolean;
   setShowTaskNumbers: (show: boolean) => void;
@@ -29,13 +44,20 @@ type UserPreferencesStore = {
   showPriority: boolean;
   setShowPriority: (show: boolean) => void;
   togglePriority: () => void;
+  showProjectBackgrounds: boolean;
+  setShowProjectBackgrounds: (show: boolean) => void;
+  showTaskItemCounts: boolean;
+  setShowTaskItemCounts: (show: boolean) => void;
+  toggleTaskItemCounts: () => void;
+  hiddenCardFieldIds: string[];
+  toggleCardFieldHidden: (fieldId: string) => void;
   resetDisplayPreferences: () => void;
 
   sidebarDefaultOpen: boolean;
   setSidebarDefaultOpen: (open: boolean) => void;
 
-  activeWorkspaceId: string | null;
-  setActiveWorkspaceId: (workspaceId: string | null) => void;
+  weekStartsOn: WeekStartDay;
+  setWeekStartsOn: (weekStartsOn: WeekStartDay) => void;
 };
 
 export const useUserPreferencesStore = create<UserPreferencesStore>()(
@@ -72,8 +94,14 @@ export const useUserPreferencesStore = create<UserPreferencesStore>()(
       viewMode: "board",
       setViewMode: (mode) => set({ viewMode: mode }),
 
+      taskLayout: "board",
+      setTaskLayout: (layout) => set({ taskLayout: layout }),
+
       compactMode: false,
       setCompactMode: (compact) => set({ compactMode: compact }),
+
+      advancedSettings: false,
+      setAdvancedSettings: (enabled) => set({ advancedSettings: enabled }),
 
       showTaskNumbers: true,
       setShowTaskNumbers: (show) => set({ showTaskNumbers: show }),
@@ -94,25 +122,45 @@ export const useUserPreferencesStore = create<UserPreferencesStore>()(
       setShowPriority: (show) => set({ showPriority: show }),
       togglePriority: () =>
         set((state) => ({ showPriority: !state.showPriority })),
+      showProjectBackgrounds: true,
+      setShowProjectBackgrounds: (show) =>
+        set({ showProjectBackgrounds: show }),
+      showTaskItemCounts: true,
+      setShowTaskItemCounts: (show) => set({ showTaskItemCounts: show }),
+      toggleTaskItemCounts: () =>
+        set((state) => ({ showTaskItemCounts: !state.showTaskItemCounts })),
+      hiddenCardFieldIds: [],
+      toggleCardFieldHidden: (fieldId) =>
+        set((state) => ({
+          hiddenCardFieldIds: state.hiddenCardFieldIds.includes(fieldId)
+            ? state.hiddenCardFieldIds.filter((id) => id !== fieldId)
+            : [...state.hiddenCardFieldIds, fieldId],
+        })),
       resetDisplayPreferences: () =>
         set({
+          hiddenCardFieldIds: [],
           showAssignees: true,
           showDueDates: true,
           showLabels: true,
           showTaskNumbers: true,
           showPriority: true,
+          showTaskItemCounts: true,
         }),
 
       sidebarDefaultOpen: true,
       setSidebarDefaultOpen: (open) => set({ sidebarDefaultOpen: open }),
 
-      activeWorkspaceId: null,
-      setActiveWorkspaceId: (workspaceId) =>
-        set({ activeWorkspaceId: workspaceId }),
+      weekStartsOn: 0,
+      setWeekStartsOn: (weekStartsOn) => set({ weekStartsOn }),
     }),
     {
       name: "user-preferences",
       storage: createJSONStorage(() => localStorage),
+      onRehydrateStorage: () => (state) => {
+        if (state && !isWeekStartDay(state.weekStartsOn)) {
+          state.setWeekStartsOn(0);
+        }
+      },
     },
   ),
 );

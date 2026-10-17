@@ -1,117 +1,175 @@
-import ProjectLayout from "@/components/common/project-layout";
-import PageTitle from "@/components/page-title";
-import TaskActivities from "@/components/task/task-activities";
-import TaskComment from "@/components/task/task-comment";
-import TaskDescription from "@/components/task/task-description";
-import TaskInfo from "@/components/task/task-info";
-import TaskTimeTracking from "@/components/task/task-time-tracking";
-import TaskTitle from "@/components/task/task-title";
-import { LoadingSkeleton } from "@/components/ui/loading-skeleton";
-import useGetTask from "@/hooks/queries/task/use-get-task";
-import useGetTasks from "@/hooks/queries/task/use-get-tasks";
-import useProjectStore from "@/store/project";
-import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { motion } from "framer-motion";
-import { X } from "lucide-react";
+import { TaskShortcuts } from "@/components/task/task-shortcuts";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import TaskLayout from "@/components/common/task-layout";
+import PageTitle from "@/components/page-title";
+import TaskDeleteDialog from "@/components/task/task-delete-dialog";
+import TaskDetailsContent from "@/components/task/task-details-content";
+import { TaskHeaderActions } from "@/components/task/header/task-header-actions";
+import { PropertiesRail } from "@/components/task/properties/properties-rail";
+import { PropertyChips } from "@/components/task/properties/property-chips";
+import {
+  TaskDetailsSkeleton,
+  TaskPropertiesRailSkeleton,
+} from "@/components/task/task-page-skeleton";
+import { AlertDialogCreateHandle } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import useGetActivitiesByTaskId from "@/hooks/queries/activity/use-get-activities-by-task-id";
+import useGetProject from "@/hooks/queries/project/use-get-project";
+import useGetTask from "@/hooks/queries/task/use-get-task";
 
 export const Route = createFileRoute(
   "/_layout/_authenticated/dashboard/workspace/$workspaceId/project/$projectId/task/$taskId_",
 )({
-  component: TaskEditPage,
+  component: RouteComponent,
 });
 
-function TaskEditPage() {
-  const { taskId, projectId, workspaceId } = Route.useParams();
-  const { data: project } = useGetTasks(projectId);
-  const { data: task, isLoading } = useGetTask(taskId);
-  const { setProject } = useProjectStore();
-  const router = useRouter();
-  const [isSaving, setIsSaving] = useState(false);
-
+function RouteComponent() {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { projectId, workspaceId, taskId } = Route.useParams();
+  const {
+    data: task,
+    isLoading: isTaskLoading,
+    isError: isTaskError,
+  } = useGetTask(taskId);
+  const { data: project, isLoading: isProjectLoading } = useGetProject({
+    id: projectId,
+    workspaceId,
+  });
+  const { isLoading: isActivitiesLoading } = useGetActivitiesByTaskId(taskId);
+  const [isShikiReady, setIsShikiReady] = useState(false);
+  const [deleteHandle] = useState(() => AlertDialogCreateHandle());
   useEffect(() => {
-    if (project) {
-      setProject(project);
-    }
-  }, [project, setProject]);
+    let mounted = true;
 
-  if (isLoading) {
-    return <LoadingSkeleton />;
-  }
+    void import("@/lib/shiki-highlighter")
+      .then(({ getSharedShikiHighlighter }) => getSharedShikiHighlighter())
+      .then(() => {
+        if (!mounted) return;
+        setIsShikiReady(true);
+      })
+      .catch((err) => {
+        console.error("Failed to initialize Shiki highlighter:", err);
+        if (!mounted) return;
+        // Render the task view without syntax highlighting rather than
+        // leaving the page stuck in a permanent loading state.
+        setIsShikiReady(true);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const isLoading =
+    isTaskLoading || isProjectLoading || isActivitiesLoading || !isShikiReady;
+
+  const handleDeleted = () => {
+    navigate({
+      to: "/dashboard/workspace/$workspaceId/project/$projectId/board",
+      params: { workspaceId, projectId },
+      replace: true,
+    });
+  };
 
   return (
-    <ProjectLayout
-      title={`${project?.slug}-${task?.number}`}
+    <TaskLayout
+      taskId={taskId}
       projectId={projectId}
       workspaceId={workspaceId}
+      headerActions={
+        !isLoading && task ? (
+          <TaskHeaderActions
+            taskId={taskId}
+            projectId={projectId}
+            workspaceId={workspaceId}
+            deleteHandle={deleteHandle}
+          />
+        ) : null
+      }
+      rail={
+        isLoading ? (
+          <TaskPropertiesRailSkeleton />
+        ) : isTaskError || !task ? null : (
+          <PropertiesRail
+            taskId={taskId}
+            projectId={projectId}
+            workspaceId={workspaceId}
+            className="w-80 shrink-0"
+          />
+        )
+      }
     >
       <PageTitle
-        title={`${project?.slug}-${task?.number} · ${task?.title || "Task"}`}
+        title={
+          isLoading
+            ? t("tasks:common.loadingTask")
+            : isTaskError || !task
+              ? t("tasks:common.taskNotFound")
+              : `${project?.slug}-${task?.number} · ${task?.title}`
+        }
         hideAppName
       />
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="h-full flex  flex-col bg-card overflow-hidden"
-      >
-        <header className="sticky top-0 z-10 flex items-center px-4 h-[65px] border-b border-zinc-200 dark:border-zinc-800">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <button
-              type="button"
-              onClick={() => router.history.back()}
-              className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-            >
-              <X className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-            </button>
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-mono text-zinc-500 dark:text-zinc-400 mb-0.5">
-                {project?.slug}-{task?.number}
-              </div>
-              <TaskTitle setIsSaving={setIsSaving} />
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5 ml-4">
-            {isSaving && (
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                Saving...
-              </span>
-            )}
-          </div>
-        </header>
-
-        <div className="flex-1 min-h-0 md:flex-row overflow-auto">
-          <div className="flex-1 min-w-0 overflow-y-auto border-r border-zinc-200 dark:border-zinc-800 flex flex-col-reverse md:flex-row h-full">
-            <div className="px-6 py-6 space-y-6 flex-1">
-              <div className="space-y-8">
-                <TaskDescription setIsSaving={setIsSaving} />
-                <TaskTimeTracking taskId={taskId} />
-
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-base font-medium text-zinc-900 dark:text-zinc-100">
-                      Comments & Activity
-                    </h2>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        className="text-xs text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100"
-                      >
-                        Show all
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-6 pb-8">
-                  <TaskComment />
-                  <TaskActivities />
-                </div>
-              </div>
-            </div>
-            {task && <TaskInfo task={task} setIsSaving={setIsSaving} />}
-          </div>
+      {!isLoading && task && (
+        <TaskShortcuts
+          taskId={taskId}
+          projectId={projectId}
+          workspaceId={workspaceId}
+        />
+      )}
+      {!isLoading && task && (
+        <TaskDeleteDialog
+          handle={deleteHandle}
+          taskId={taskId}
+          onDeleted={handleDeleted}
+        />
+      )}
+      {isLoading ? (
+        <TaskDetailsSkeleton />
+      ) : isTaskError || !task ? (
+        <div className="flex h-full flex-col items-center justify-center gap-4 px-4 py-12 text-center">
+          <h1 className="text-2xl font-bold">
+            {t("tasks:common.taskNotFound")}
+          </h1>
+          <p className="text-muted-foreground max-w-md">
+            {t("tasks:common.taskNotFoundDescription", {
+              defaultValue:
+                "The task you are looking for does not exist or has been deleted.",
+            })}
+          </p>
+          <Button
+            variant="outline"
+            onClick={() =>
+              navigate({
+                to: "/dashboard/workspace/$workspaceId/project/$projectId/board",
+                params: { workspaceId, projectId },
+              })
+            }
+          >
+            {t("navigation:sidebar.backToBoard", {
+              defaultValue: "Back to board",
+            })}
+          </Button>
         </div>
-      </motion.div>
-    </ProjectLayout>
+      ) : (
+        <TaskDetailsContent
+          taskId={taskId}
+          projectId={projectId}
+          workspaceId={workspaceId}
+          variant="page"
+          className="mx-auto w-full max-w-2xl px-4 pt-6 pb-16 sm:px-6 xl:pt-12 xl:pb-20"
+          properties={
+            <PropertyChips
+              taskId={taskId}
+              projectId={projectId}
+              workspaceId={workspaceId}
+              className="pb-5 lg:hidden"
+            />
+          }
+        />
+      )}
+    </TaskLayout>
   );
 }

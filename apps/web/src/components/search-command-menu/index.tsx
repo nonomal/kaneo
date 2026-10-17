@@ -1,16 +1,3 @@
-import {
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import { KbdSequence } from "@/components/ui/kbd";
-import { shortcuts } from "@/constants/shortcuts";
-import useGlobalSearch from "@/hooks/queries/search/use-global-search";
-import { useRegisterShortcuts } from "@/hooks/use-keyboard-shortcuts";
-import useWorkspaceStore from "@/store/workspace";
 import { useNavigate } from "@tanstack/react-router";
 import {
   FileText,
@@ -21,7 +8,24 @@ import {
   Users,
   Zap,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import {
+  Command,
+  CommandCollection,
+  CommandDialog,
+  CommandDialogPopup,
+  CommandEmpty,
+  CommandGroup,
+  CommandGroupLabel,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandPanel,
+  CommandSeparator,
+} from "@/components/ui/command";
+import useGlobalSearch from "@/hooks/queries/search/use-global-search";
+import useActiveWorkspace from "@/hooks/queries/workspace/use-active-workspace";
 
 type SearchResultItem = {
   id: string;
@@ -37,29 +41,30 @@ type SearchResultItem = {
   status?: string;
 };
 
+type SearchGroup = {
+  value: string;
+  label: string;
+  items: SearchResultItem[];
+};
+
 type SearchCommandMenuProps = {
   open: boolean;
   setOpen: (open: boolean) => void;
 };
 
 function SearchCommandMenu({ open, setOpen }: SearchCommandMenuProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
-  const { workspace } = useWorkspaceStore();
+  const { data: workspace } = useActiveWorkspace();
   const navigate = useNavigate();
+
+  const searchEnabled = query.trim().length >= 3;
 
   const { data: searchResults } = useGlobalSearch({
     q: query,
     type: "all",
     workspaceId: workspace?.id,
     limit: 20,
-  });
-
-  useRegisterShortcuts({
-    shortcuts: {
-      [shortcuts.search.prefix]: () => {
-        setOpen(true);
-      },
-    },
   });
 
   useEffect(() => {
@@ -139,98 +144,104 @@ function SearchCommandMenu({ open, setOpen }: SearchCommandMenuProps) {
     }
   };
 
-  const groupedResults = searchResults?.results?.reduce(
-    (acc: Record<string, SearchResultItem[]>, item: SearchResultItem) => {
-      if (!acc[item.type]) {
-        acc[item.type] = [];
-      }
-      acc[item.type].push(item);
-      return acc;
-    },
-    {} as Record<string, SearchResultItem[]>,
-  );
+  const groupedItems = useMemo<SearchGroup[]>(() => {
+    if (!searchEnabled) return [];
+    const results = (searchResults?.results ?? []) as SearchResultItem[];
+    const grouped = results.reduce(
+      (acc: Record<string, SearchResultItem[]>, item: SearchResultItem) => {
+        if (!acc[item.type]) acc[item.type] = [];
+        acc[item.type].push(item);
+        return acc;
+      },
+      {} as Record<string, SearchResultItem[]>,
+    );
 
-  const getGroupLabel = (type: string) => {
-    switch (type) {
-      case "task":
-        return "Tasks";
-      case "project":
-        return "Projects";
-      case "workspace":
-        return "Workspaces";
-      case "comment":
-        return "Comments";
-      case "activity":
-        return "Activities";
-      default:
-        return "Results";
-    }
-  };
+    const groupLabel = (type: string) => {
+      switch (type as SearchResultItem["type"]) {
+        case "task":
+          return t("navigation:search.groups.task");
+        case "project":
+          return t("navigation:search.groups.project");
+        case "workspace":
+          return t("navigation:search.groups.workspace");
+        case "comment":
+          return t("navigation:search.groups.comment");
+        case "activity":
+          return t("navigation:search.groups.activity");
+        default:
+          return t("navigation:search.groups.fallback");
+      }
+    };
+
+    return Object.entries(grouped).map(([type, items]) => ({
+      value: type,
+      label: groupLabel(type),
+      items,
+    }));
+  }, [searchEnabled, searchResults?.results, t]);
 
   return (
-    <CommandDialog
-      open={open}
-      onOpenChange={setOpen}
-      title="Search"
-      description="Search for tasks, projects, comments, and more"
-    >
-      <CommandInput
-        placeholder="Search tasks, projects, comments..."
-        value={query}
-        onValueChange={setQuery}
-      />
-      <CommandList>
-        {query.length <= 2 && (
-          <CommandEmpty>
-            <div className="text-center py-6">
-              <Search className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">
-                Type at least 3 characters to search
-              </p>
-              <div className="mt-2 text-xs text-muted-foreground">
-                Press <KbdSequence keys={["/"]} className="inline-flex" /> to
-                focus
+    <CommandDialog open={open} onOpenChange={setOpen}>
+      <CommandDialogPopup instant>
+        <Command items={groupedItems}>
+          <CommandInput
+            placeholder={t("navigation:search.inputPlaceholder")}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          <CommandPanel>
+            <CommandEmpty>
+              <div className="text-center py-6">
+                <Search className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">
+                  {searchEnabled
+                    ? t("navigation:commandPalette.empty")
+                    : t("navigation:search.minCharsHint")}
+                </p>
               </div>
-            </div>
-          </CommandEmpty>
-        )}
-
-        {groupedResults &&
-          Object.keys(groupedResults).length > 0 &&
-          Object.entries(groupedResults).map(([type, items]) =>
-            items.length > 0 ? (
-              <CommandGroup key={type} heading={getGroupLabel(type)}>
-                {items.map((item) => {
-                  const Icon = getItemIcon(item.type);
-                  return (
-                    <CommandItem
-                      key={`${item.type}-${item.id}`}
-                      onSelect={() => handleSelect(item)}
-                      className="flex items-start gap-3 py-3"
-                      value={`${item.title} ${item.description || ""} ${item.type} ${item.id}`}
-                      aria-label={`${item.type}: ${item.title}`}
-                    >
-                      <Icon
-                        className="h-4 w-4 mt-0.5 text-muted-foreground flex-shrink-0"
-                        aria-hidden="true"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium text-sm truncate">
-                          {item.title}
-                        </div>
-                        {item.description && (
-                          <div className="text-xs text-muted-foreground truncate mt-1">
-                            {item.description}
-                          </div>
-                        )}
-                      </div>
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            ) : null,
-          )}
-      </CommandList>
+            </CommandEmpty>
+            <CommandList>
+              {(group: SearchGroup, groupIndex: number) => (
+                <Fragment key={group.value}>
+                  <CommandGroup items={group.items}>
+                    <CommandGroupLabel>{group.label}</CommandGroupLabel>
+                    <CommandCollection>
+                      {(item: SearchResultItem) => {
+                        const Icon = getItemIcon(item.type);
+                        return (
+                          <CommandItem
+                            key={`${item.type}-${item.id}`}
+                            value={`${item.title} ${item.description || ""} ${item.type} ${item.id}`}
+                            onClick={() => handleSelect(item)}
+                            className="flex items-start gap-3 py-3"
+                            aria-label={`${item.type}: ${item.title}`}
+                          >
+                            <Icon
+                              className="h-4 w-4 mt-0.5 text-muted-foreground flex-shrink-0"
+                              aria-hidden="true"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-sm truncate">
+                                {item.title}
+                              </div>
+                              {item.description && (
+                                <div className="text-xs text-muted-foreground truncate mt-1">
+                                  {item.description}
+                                </div>
+                              )}
+                            </div>
+                          </CommandItem>
+                        );
+                      }}
+                    </CommandCollection>
+                  </CommandGroup>
+                  {groupIndex < groupedItems.length - 1 && <CommandSeparator />}
+                </Fragment>
+              )}
+            </CommandList>
+          </CommandPanel>
+        </Command>
+      </CommandDialogPopup>
     </CommandDialog>
   );
 }

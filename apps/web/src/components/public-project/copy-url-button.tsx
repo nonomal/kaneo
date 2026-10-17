@@ -1,36 +1,43 @@
-import { Button } from "@/components/ui/button";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, LinkIcon } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/lib/toast";
 
 export function CopyUrlButton() {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
 
   const handleCopyUrl = async () => {
     try {
       await navigator.clipboard.writeText(window.location.href);
       setCopied(true);
+      toast.success(t("publicProject:copyUrl.successToast"), {
+        icon: LinkIcon,
+      });
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {
       console.error("Failed to copy URL:", error);
+      toast.error(t("publicProject:copyUrl.errorToast"));
     }
   };
 
   return (
     <Button
-      variant="outline"
+      variant="ghost"
       size="sm"
       onClick={handleCopyUrl}
-      className="gap-2"
+      className="h-8 gap-2"
     >
       {copied ? (
         <>
-          <Check className="w-4 h-4" />
-          Copied
+          <Check className="h-3 w-3" />
+          <span className="text-xs">{t("publicProject:copyUrl.copied")}</span>
         </>
       ) : (
         <>
-          <Copy className="w-4 h-4" />
-          Copy URL
+          <Copy className="h-3 w-3" />
+          <span className="text-xs">{t("publicProject:copyUrl.share")}</span>
         </>
       )}
     </Button>

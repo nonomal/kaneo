@@ -1,26 +1,60 @@
-import { client } from "@kaneo/libs";
-import type { InferRequestType } from "hono/client";
+import { authClient } from "@/lib/auth-client";
+import {
+  createUniqueWorkspaceSlug,
+  isWorkspaceSlugCollisionError,
+} from "@/lib/utils/create-workspace-slug";
 
-export type CreateWorkspaceRequest = InferRequestType<
-  typeof client.workspace.$post
->["json"];
+export type CreateWorkspaceRequest = {
+  name: string;
+  description?: string;
+  slug?: string;
+  logo?: string;
+};
 
 const createWorkspace = async ({
   name,
   description,
+  slug,
+  logo,
 }: CreateWorkspaceRequest) => {
-  const response = await client.workspace.$post({
-    json: { name, description },
-  });
+  const metadata = description ? { description } : undefined;
+  const existingWorkspaces = slug
+    ? []
+    : ((await authClient.organization.list()).data ?? []);
+  let workspaceSlug = slug
+    ? slug
+    : createUniqueWorkspaceSlug(
+        name,
+        existingWorkspaces.map((workspace) => workspace.slug),
+      );
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(error);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const { data, error } = await authClient.organization.create({
+      name,
+      slug: workspaceSlug,
+      logo,
+      metadata,
+    });
+
+    if (!error) {
+      return data;
+    }
+
+    const createError = new Error(
+      error.message || "Failed to create workspace",
+    );
+
+    if (slug || !isWorkspaceSlugCollisionError(createError)) {
+      throw createError;
+    }
+
+    workspaceSlug = createUniqueWorkspaceSlug(name, [
+      ...existingWorkspaces.map((workspace) => workspace.slug),
+      workspaceSlug,
+    ]);
   }
 
-  const workspace = await response.json();
-
-  return workspace;
+  throw new Error("Failed to create workspace");
 };
 
 export default createWorkspace;

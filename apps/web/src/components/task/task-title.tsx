@@ -1,77 +1,122 @@
-import useUpdateTask from "@/hooks/mutations/task/use-update-task";
-import useGetTask from "@/hooks/queries/task/use-get-task";
-import debounce from "@/lib/debounce";
-import { Route } from "@/routes/_layout/_authenticated/dashboard/workspace/$workspaceId/project/$projectId/task/$taskId_";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useForm } from "react-hook-form";
-import { toast } from "sonner";
-import { z } from "zod/v4";
-import { Form, FormField } from "../ui/form";
+import { useTranslation } from "react-i18next";
 
-const taskTitleSchema = z.object({
-  title: z.string().min(1),
-});
+import { Form, FormField } from "@/components/ui/form";
+import { useUpdateTaskTitle } from "@/hooks/mutations/task/use-update-task-title";
+import useGetTask from "@/hooks/queries/task/use-get-task";
+import { useAutoGrowTextarea } from "@/hooks/use-auto-grow-textarea";
+import { useWorkspacePermission } from "@/hooks/use-workspace-permission";
+import { cn } from "@/lib/cn";
+import debounce from "@/lib/debounce";
+import { stripLineBreaks } from "@/lib/strip-line-breaks";
 
-function TaskTitle({
-  setIsSaving,
-}: { setIsSaving: (isSaving: boolean) => void }) {
-  const { taskId } = Route.useParams();
+type TaskTitleProps = {
+  taskId: string;
+  size?: "md" | "lg";
+};
+
+export default function TaskTitle({ taskId, size = "md" }: TaskTitleProps) {
+  const { t } = useTranslation();
   const { data: task } = useGetTask(taskId);
-  const { mutateAsync: updateTask } = useUpdateTask();
-  const form = useForm<z.infer<typeof taskTitleSchema>>({
+  const { mutateAsync: updateTaskTitle } = useUpdateTaskTitle();
+  const { canUpdateTasks } = useWorkspacePermission();
+  const canEdit = canUpdateTasks();
+  const isInitializedRef = useRef(false);
+  const taskRef = useRef(task);
+  const updateTaskRef = useRef(updateTaskTitle);
+
+  useEffect(() => {
+    taskRef.current = task;
+    updateTaskRef.current = updateTaskTitle;
+  }, [task, updateTaskTitle]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- taskId is not needed here
+  useEffect(() => {
+    isInitializedRef.current = false;
+  }, [taskId]);
+
+  const form = useForm<{
+    title: string;
+  }>({
     values: {
       title: task?.title || "",
     },
   });
 
-  const debouncedUpdate = debounce(async (value: string) => {
-    if (!task) return;
+  useEffect(() => {
+    if (task?.title !== undefined) isInitializedRef.current = true;
+  }, [task?.title]);
 
-    setIsSaving(true);
-    try {
-      await updateTask({
-        ...task,
-        title: value,
-        userId: task.userId || "",
-        status: task.status || "",
-        dueDate: task.dueDate ? new Date(task.dueDate).toISOString() : null,
-        priority: task.priority || "",
-        position: task.position || 0,
-      });
-      toast.success("Task title updated", { duration: 2000 });
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to update task title",
-      );
-    } finally {
-      setIsSaving(false);
-    }
-  }, 1000);
+  const debouncedUpdate = useMemo(
+    () =>
+      debounce(async (title: string) => {
+        if (!isInitializedRef.current) return;
 
-  async function handleTitleChange(value: string) {
-    debouncedUpdate(value);
-  }
+        const currentTask = taskRef.current;
+        const updateTaskFn = updateTaskRef.current;
+
+        if (!currentTask || !updateTaskFn) return;
+
+        try {
+          await updateTaskFn({
+            ...currentTask,
+            title,
+          });
+        } catch (error) {
+          console.error("Failed to update title:", error);
+        }
+      }, 800),
+    [],
+  );
+
+  const title = form.watch("title");
+  const textareaRef = useAutoGrowTextarea(title);
+
+  const handleTitleChange = useCallback(
+    (value: string) => {
+      if (!isInitializedRef.current) return;
+
+      debouncedUpdate(value);
+    },
+    [debouncedUpdate],
+  );
 
   return (
-    <div className="flex items-center gap-2">
-      <Form {...form}>
-        <FormField
-          control={form.control}
-          name="title"
-          render={({ field }) => (
-            <input
-              type="text"
-              className="w-full text-sm font-medium bg-transparent border-none focus:outline-none focus:ring-0 text-zinc-900 dark:text-zinc-100 p-0"
-              {...field}
-              onChange={(e) => {
-                field.onChange(e);
-                handleTitleChange(e.target.value);
-              }}
-            />
-          )}
-        />
-      </Form>
-    </div>
+    <Form {...form}>
+      <FormField
+        control={form.control}
+        name="title"
+        render={({ field }) => (
+          <textarea
+            {...field}
+            data-task-action="title"
+            ref={(element) => {
+              field.ref(element);
+              textareaRef.current = element;
+            }}
+            rows={1}
+            placeholder={t("tasks:detail.titlePlaceholder")}
+            readOnly={!canEdit}
+            className={cn(
+              "block h-auto w-full resize-none appearance-none overflow-hidden border-0 bg-transparent p-0 font-heading font-semibold text-2xl text-foreground leading-[1.25] tracking-[-0.02em] outline-none placeholder:text-foreground/45",
+              size === "lg" && "sm:text-[1.75rem] sm:leading-[1.2]",
+            )}
+            onKeyDown={(e) => {
+              // Titles are single-line; Enter commits instead of adding a break.
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                e.currentTarget.blur();
+              }
+            }}
+            onChange={(e) => {
+              const value = stripLineBreaks(e.target.value);
+              field.onChange(value);
+              handleTitleChange(value);
+            }}
+          />
+        )}
+      />
+    </Form>
   );
 }
-
-export default TaskTitle;

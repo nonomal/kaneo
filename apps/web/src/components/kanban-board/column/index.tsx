@@ -1,53 +1,104 @@
-import CreateTaskModal from "@/components/shared/modals/create-task-modal";
-import toKebabCase from "@/lib/to-kebab-case";
+import { useDroppable } from "@dnd-kit/core";
+import { cva } from "class-variance-authority";
+import { memo } from "react";
+import { useBackgroundStore } from "@/store/background";
 import type { ProjectWithTasks } from "@/types/project";
-import { Plus } from "lucide-react";
-import { useState } from "react";
 import { ColumnDropzone } from "./column-dropzone";
 import { ColumnHeader } from "./column-header";
+import { ColumnSortHint } from "./column-sort-hint";
 
-interface ColumnProps {
+type ColumnProps = {
   column: ProjectWithTasks["columns"][number];
-}
+  activeTaskId: string | null;
+  sortHint?: string;
+  disableDragDrop?: boolean;
+  disableSorting?: boolean;
+  disableCollectionActions?: boolean;
+};
 
-function Column({ column }: ColumnProps) {
-  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
-  const [isDropzoneOver, setIsDropzoneOver] = useState(false);
+export const columnVariants = cva(
+  "group relative flex h-full min-h-0 w-full flex-col rounded-xl transition-colors duration-150",
+  {
+    defaultVariants: {
+      isDropzoneOver: false,
+      backgroundImage: false,
+    },
+    variants: {
+      isDropzoneOver: {
+        true: "",
+        false: "",
+      },
+      backgroundImage: {
+        true: "before:content-[''] before:absolute before:inset-0 before:rounded-[calc(var(--radius-xl)-1px)] before:pointer-events-none",
+        false: "",
+      },
+    },
+    compoundVariants: [
+      {
+        isDropzoneOver: false,
+        backgroundImage: false,
+        class: "bg-board-lane",
+      },
+      {
+        isDropzoneOver: true,
+        backgroundImage: false,
+        class: "bg-board-lane ring-2 ring-board-card-ring",
+      },
+      {
+        isDropzoneOver: false,
+        backgroundImage: true,
+        class:
+          "border border-border/70 bg-background shadow-md before:bg-muted before:dark:bg-card",
+      },
+      {
+        isDropzoneOver: true,
+        backgroundImage: true,
+        class:
+          "border border-border/70 bg-background ring-2 ring-focus/60 before:bg-accent/60",
+      },
+    ],
+  },
+);
+
+function Column({
+  column,
+  activeTaskId,
+  sortHint,
+  disableDragDrop = false,
+  disableSorting = false,
+  disableCollectionActions = false,
+}: ColumnProps) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: column.id,
+    data: { type: "column", column },
+  });
+  const { background } = useBackgroundStore();
 
   return (
     <div
-      className={`flex flex-col h-full w-full min-h-0 backdrop-blur-xs rounded-lg relative group transition-all duration-300 ease-out ${
-        isDropzoneOver
-          ? "bg-indigo-50/60 dark:bg-indigo-950/40 ring-1 ring-indigo-200 dark:ring-indigo-800/50 shadow-md shadow-indigo-500/10"
-          : "bg-zinc-50/30 dark:bg-zinc-900/30 hover:bg-zinc-50/40 dark:hover:bg-zinc-900/40 hover:shadow-sm"
-      }`}
+      ref={setNodeRef}
+      className={columnVariants({
+        isDropzoneOver: isOver,
+        backgroundImage: !!background,
+      })}
     >
-      <CreateTaskModal
-        open={isTaskModalOpen}
-        onClose={() => setIsTaskModalOpen(false)}
-        status={toKebabCase(column.name)}
-      />
-
-      <div className="p-2 shrink-0">
-        <ColumnHeader column={column} />
+      <div className="shrink-0 pt-1 pr-2 pl-3">
+        <ColumnHeader
+          column={column}
+          disableCollectionActions={disableCollectionActions}
+        />
       </div>
-
-      <div className="p-2 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
-        <ColumnDropzone column={column} onIsOverChange={setIsDropzoneOver} />
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1.5 pt-1.5 pb-1.5 [-webkit-overflow-scrolling:touch]">
+        <ColumnDropzone
+          column={column}
+          activeTaskId={activeTaskId}
+          disableDragDrop={disableDragDrop}
+          disableSorting={disableSorting}
+        />
       </div>
-
-      <div className="p-1.5 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-        <button
-          type="button"
-          onClick={() => setIsTaskModalOpen(true)}
-          className="w-full text-left px-2 py-1 text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-500 dark:hover:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800/30 rounded-md flex items-center gap-2 transition-all"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add task</span>
-        </button>
-      </div>
+      {sortHint && <ColumnSortHint label={sortHint} />}
     </div>
   );
 }
 
-export default Column;
+export default memo(Column);

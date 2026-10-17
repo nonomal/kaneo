@@ -1,9 +1,13 @@
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { ArrowLeft, Loader2, Search } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import WorkspaceLayout from "@/components/common/workspace-layout";
+import PageTitle from "@/components/page-title";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Link, createFileRoute } from "@tanstack/react-router";
-import { ArrowLeft, Search } from "lucide-react";
-import { useState } from "react";
+import useGlobalSearch from "@/hooks/queries/search/use-global-search";
+import { getPriorityIcon } from "@/lib/priority";
 
 export const Route = createFileRoute(
   "/_layout/_authenticated/dashboard/workspace/$workspaceId/search",
@@ -12,125 +16,207 @@ export const Route = createFileRoute(
 });
 
 function SearchComponent() {
+  const { t } = useTranslation();
   const { workspaceId } = Route.useParams();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isSearching, setIsSearching] = useState(false);
+  const navigate = useNavigate();
+  const [searchInput, setSearchInput] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleSearch = async (query: string) => {
-    if (!query.trim()) return;
+  const { data, isLoading, isFetching } = useGlobalSearch({
+    q: debouncedQuery,
+    workspaceId,
+    type: "tasks",
+  });
 
-    setIsSearching(true);
-    setTimeout(() => {
-      setIsSearching(false);
-    }, 1000);
-  };
+  const handleInputChange = useCallback((value: string) => {
+    setSearchInput(value);
+
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    debounceRef.current = setTimeout(() => {
+      setDebouncedQuery(value.trim());
+    }, 300);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, []);
+
+  const results = data?.results ?? [];
+  const hasQuery = debouncedQuery.length > 0;
+  const showLoading = hasQuery && (isLoading || isFetching);
+
+  const quickSearchSuggestions = useMemo(
+    () => [
+      t("workspace:search.suggestionHighPriority"),
+      t("workspace:search.suggestionBug"),
+      t("workspace:search.suggestionFeature"),
+      t("workspace:search.suggestionInProgress"),
+      t("workspace:search.suggestionCompleted"),
+    ],
+    [t],
+  );
 
   return (
-    <WorkspaceLayout
-      title="Search"
-      headerActions={
-        <Link to="/dashboard/workspace/$workspaceId" params={{ workspaceId }}>
-          <Button variant="ghost" size="sm" className="gap-2">
-            <ArrowLeft className="w-4 h-4" />
-            Back to Dashboard
-          </Button>
-        </Link>
-      }
-    >
-      <div className="space-y-6">
-        <div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-            <Input
-              placeholder="Search projects, tasks, comments..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  handleSearch(searchQuery);
-                }
-              }}
-              className="pl-10 h-12 text-lg"
-              autoFocus
-            />
-            <Button
-              onClick={() => handleSearch(searchQuery)}
-              disabled={!searchQuery.trim() || isSearching}
-              className="absolute right-2 top-1/2 transform -translate-y-1/2"
-              size="sm"
-            >
-              {isSearching ? "Searching..." : "Search"}
+    <>
+      <PageTitle title={t("workspace:search.pageTitle")} />
+      <WorkspaceLayout
+        title={t("workspace:search.pageTitle")}
+        headerActions={
+          <Link
+            to="/dashboard/workspace/$workspaceId"
+            params={{ workspaceId }}
+            aria-label={t("workspace:search.backToDashboard")}
+          >
+            <Button variant="ghost" size="sm" className="gap-2" tabIndex={-1}>
+              <ArrowLeft className="w-4 h-4" />
+              <span className="hidden sm:inline">
+                {t("workspace:search.backToDashboard")}
+              </span>
             </Button>
-          </div>
-          <p className="text-sm text-muted-foreground mt-2">
-            Search across all projects, tasks, and comments in this workspace
-          </p>
-        </div>
-
-        {searchQuery ? (
+          </Link>
+        }
+      >
+        <div className="mx-auto w-full max-w-3xl space-y-6 p-4 sm:p-6">
           <div>
-            <h2 className="text-xl font-semibold mb-4">
-              Search Results for "{searchQuery}"
-            </h2>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+              <Input
+                placeholder={t("workspace:search.placeholder")}
+                value={searchInput}
+                onChange={(e) => handleInputChange(e.target.value)}
+                className="h-12 text-base sm:text-lg [&_[data-slot=input]]:pl-10"
+                autoFocus
+              />
+              {showLoading && (
+                <Loader2 className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 animate-spin text-muted-foreground" />
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground mt-2">
+              {t("workspace:search.hint")}
+            </p>
+          </div>
 
-            {isSearching ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="text-center space-y-4">
-                  <div className="w-16 h-16 bg-zinc-200 dark:bg-zinc-800 rounded-lg animate-pulse mx-auto" />
-                  <div className="space-y-2">
-                    <div className="w-48 h-4 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse mx-auto" />
-                    <div className="w-64 h-3 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse mx-auto" />
+          {hasQuery ? (
+            <div>
+              {showLoading && results.length === 0 ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-center space-y-4">
+                    <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mx-auto" />
+                    <p className="text-sm text-muted-foreground">
+                      {t("workspace:search.searching")}
+                    </p>
                   </div>
                 </div>
-              </div>
-            ) : (
-              <div className="text-center py-12">
-                <Search className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-lg font-medium mb-2">No results found</p>
-                <p className="text-muted-foreground">
-                  Try adjusting your search terms or search for something else
-                </p>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="text-center py-12">
-            <Search className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Start Searching</h2>
-            <p className="text-muted-foreground mb-6">
-              Enter a search term to find projects, tasks, and comments
-            </p>
+              ) : results.length > 0 ? (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground mb-3">
+                    {t("workspace:search.resultsFound", {
+                      count: data?.totalCount ?? results.length,
+                    })}
+                  </p>
+                  {results.map((result) => (
+                    <button
+                      key={result.id}
+                      type="button"
+                      onClick={() => {
+                        if (result.type === "task" && result.projectId) {
+                          navigate({
+                            to: "/dashboard/workspace/$workspaceId/project/$projectId/board",
+                            params: {
+                              workspaceId,
+                              projectId: result.projectId,
+                            },
+                            search: { taskId: result.id },
+                          });
+                        }
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-3 sm:gap-3 sm:px-4 rounded-lg border border-border bg-background hover:bg-accent/60 transition-colors text-left"
+                    >
+                      <div className="flex-shrink-0 first:[&_svg]:h-4 first:[&_svg]:w-4">
+                        {getPriorityIcon(result.priority ?? "")}
+                      </div>
 
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-muted-foreground">
-                Quick searches:
+                      {result.projectSlug && result.taskNumber && (
+                        <span className="text-xs font-mono text-muted-foreground flex-shrink-0">
+                          {result.projectSlug}-{result.taskNumber}
+                        </span>
+                      )}
+
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm text-foreground truncate block">
+                          {result.title}
+                        </span>
+                      </div>
+
+                      {result.projectName && (
+                        <span className="hidden text-xs text-muted-foreground flex-shrink-0 sm:inline">
+                          {result.projectName}
+                        </span>
+                      )}
+
+                      {result.status && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded border border-border bg-muted/55 text-muted-foreground flex-shrink-0">
+                          {result.status}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <Search className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                  <p className="text-lg font-medium mb-2">
+                    {t("workspace:search.noResultsTitle")}
+                  </p>
+                  <p className="text-muted-foreground">
+                    {t("workspace:search.noResultsDescription")}
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <Search className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+              <h2 className="text-xl font-semibold mb-2">
+                {t("workspace:search.startTitle")}
+              </h2>
+              <p className="text-muted-foreground mb-6">
+                {t("workspace:search.startDescription")}
               </p>
-              <div className="flex flex-wrap gap-2 justify-center">
-                {[
-                  "High priority",
-                  "Bug",
-                  "Feature",
-                  "In progress",
-                  "Completed",
-                ].map((suggestion) => (
-                  <Button
-                    key={suggestion}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setSearchQuery(suggestion);
-                      handleSearch(suggestion);
-                    }}
-                    className="text-xs"
-                  >
-                    {suggestion}
-                  </Button>
-                ))}
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-muted-foreground">
+                  {t("workspace:search.quickSearchesLabel")}
+                </p>
+                <div className="flex flex-wrap gap-2 justify-center">
+                  {quickSearchSuggestions.map((suggestion) => (
+                    <Button
+                      key={suggestion}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSearchInput(suggestion);
+                        setDebouncedQuery(suggestion);
+                      }}
+                      className="text-xs"
+                    >
+                      {suggestion}
+                    </Button>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </div>
-    </WorkspaceLayout>
+          )}
+        </div>
+      </WorkspaceLayout>
+    </>
   );
 }

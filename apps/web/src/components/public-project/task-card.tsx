@@ -1,79 +1,159 @@
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { priorityColorsTaskCard } from "@/constants/priority-colors";
-import { cn } from "@/lib/cn";
+import { Calendar, CalendarClock, CalendarX } from "lucide-react";
+import { useRef } from "react";
+import { TaskProgressBadges } from "@/components/task/task-progress-badges";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  dueDateStatusColors,
+  getDueDateStatus,
+  isTaskCompleted,
+} from "@/lib/due-date-status";
+import { formatDateShort } from "@/lib/format";
+import { getInitials } from "@/lib/get-initials";
+import { getPriorityIcon } from "@/lib/priority";
+import type { ExternalLink } from "@/types/external-link";
 import type Task from "@/types/task";
-import { format } from "date-fns";
-import { Flag } from "lucide-react";
+import { TaskPullRequests } from "@/components/task/task-pull-requests";
+import { PublicTaskLabels } from "./public-task-labels";
 
-interface PublicTaskCardProps {
-  task: Task;
+type PublicTaskCardProps = {
+  task: Task & {
+    labels?: Array<{ id: string; name: string; color: string }>;
+    externalLinks?: Array<ExternalLink>;
+  };
   projectSlug: string;
+  // Passed by views that hold the column, so completion comes from isFinal
+  // rather than the slug fallback.
+  isCompleted?: boolean;
   onTaskClick: (task: Task) => void;
-}
+};
 
 export function PublicTaskCard({
   task,
   projectSlug,
+  isCompleted,
   onTaskClick,
 }: PublicTaskCardProps) {
+  const taskIsCompleted = isCompleted ?? isTaskCompleted(task.status);
+  const labels = task.labels || [];
+  const externalLinks = task.externalLinks || [];
+  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(
+    null,
+  );
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    touchStartRef.current = {
+      x: touch.clientX,
+      y: touch.clientY,
+      time: Date.now(),
+    };
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStartRef.current) return;
+
+    const touch = e.changedTouches[0];
+    const deltaX = Math.abs(touch.clientX - touchStartRef.current.x);
+    const deltaY = Math.abs(touch.clientY - touchStartRef.current.y);
+    const deltaTime = Date.now() - touchStartRef.current.time;
+
+    if (deltaX > 10 || deltaY > 10 || deltaTime > 300) {
+      e.preventDefault();
+      touchStartRef.current = null;
+      return;
+    }
+
+    touchStartRef.current = null;
+    onTaskClick(task);
+  };
+
   return (
-    <button
-      type="button"
-      className="w-full text-left p-4 bg-white dark:bg-zinc-800/80 rounded-lg border border-zinc-200 dark:border-zinc-700/50 shadow-sm hover:shadow-md transition-all cursor-pointer hover:border-zinc-300 dark:hover:border-zinc-600 hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-900"
-      onClick={() => onTaskClick(task)}
-      aria-label={`View details for task ${task.title}`}
-    >
-      <div className="space-y-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="space-y-1 flex-1 min-w-0">
-            <div className="text-xs font-mono text-zinc-500 dark:text-zinc-400">
-              {projectSlug}-{task.number}
-            </div>
-            <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100 line-clamp-2 leading-relaxed">
-              {task.title}
-            </h3>
-          </div>
+    <div className="group relative w-full text-left p-3 bg-card border border-border rounded-lg cursor-pointer transition-[background-color,border-color,box-shadow] duration-150 ease-out hover:border-border/70 hover:shadow-sm">
+      <button
+        type="button"
+        className="absolute inset-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onClick={() => onTaskClick(task)}
+        aria-label={`View details for task ${task.title}`}
+      />
+      <div className="pointer-events-none">
+        <div className="text-[10px] font-mono text-muted-foreground mb-2">
+          {projectSlug}-{task.number}
         </div>
 
-        {task.description && (
-          <p className="text-xs text-zinc-600 dark:text-zinc-400 line-clamp-3 leading-relaxed">
-            {task.description}
-          </p>
+        {task.assigneeName && (
+          <div className="flex items-center gap-1.5 mb-2">
+            <Avatar className="h-5 w-5">
+              <AvatarImage
+                src={task.assigneeImage ?? ""}
+                alt={task.assigneeName ?? ""}
+              />
+              <AvatarFallback className="text-[10px] font-medium border border-border/30">
+                {getInitials(task.assigneeName)}
+              </AvatarFallback>
+            </Avatar>
+            <span className="text-[10px] text-muted-foreground font-medium truncate">
+              {task.assigneeName}
+            </span>
+          </div>
         )}
 
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            {task.priority && (
-              <div
-                className={cn(
-                  "flex items-center gap-1 text-xs px-2 py-1 rounded-full font-medium",
-                  priorityColorsTaskCard[
-                    task.priority as keyof typeof priorityColorsTaskCard
-                  ],
-                )}
-              >
-                <Flag className="w-3 h-3" />
-                <span className="capitalize">{task.priority}</span>
-              </div>
-            )}
-          </div>
+        <div className="mb-3">
+          <h3
+            className="font-medium text-foreground text-sm leading-relaxed overflow-hidden break-words"
+            style={{
+              display: "-webkit-box",
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: "vertical",
+              wordBreak: "break-word",
+              hyphens: "auto",
+            }}
+          >
+            {task.title}
+          </h3>
+        </div>
 
-          <div className="flex items-center gap-2">
-            {task.userId && (
-              <Avatar className="h-6 w-6 ring-2 ring-zinc-100 dark:ring-zinc-700">
-                <AvatarFallback className="text-xs font-medium">
-                  {task.userId.charAt(0).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-            )}
-            {task.dueDate && (
-              <div className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">
-                {format(new Date(task.dueDate), "MMM d")}
-              </div>
-            )}
+        {labels.length > 0 && (
+          <div className="mb-3">
+            <PublicTaskLabels labels={labels} />
           </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <TaskProgressBadges task={task} asText />
+          {task.priority && (
+            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-border bg-sidebar text-[10px] font-medium text-muted-foreground">
+              {getPriorityIcon(task.priority ?? "")}
+            </span>
+          )}
+
+          {task.dueDate && (
+            <div
+              className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded ${dueDateStatusColors[getDueDateStatus(task.dueDate, taskIsCompleted)]}`}
+            >
+              {getDueDateStatus(task.dueDate, taskIsCompleted) ===
+                "overdue" && <CalendarX className="w-3 h-3" />}
+              {getDueDateStatus(task.dueDate, taskIsCompleted) ===
+                "due-soon" && <CalendarClock className="w-3 h-3" />}
+              {(getDueDateStatus(task.dueDate, taskIsCompleted) ===
+                "far-future" ||
+                getDueDateStatus(task.dueDate, taskIsCompleted) ===
+                  "no-due-date") && <Calendar className="w-3 h-3" />}
+              <span>{formatDateShort(task.dueDate)}</span>
+            </div>
+          )}
+
+          {externalLinks.length > 0 && (
+            <div className="pointer-events-auto relative">
+              <TaskPullRequests
+                externalLinks={externalLinks}
+                className="border-border bg-sidebar"
+              />
+            </div>
+          )}
         </div>
       </div>
-    </button>
+    </div>
   );
 }

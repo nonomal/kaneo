@@ -1,23 +1,16 @@
 import db from "../../database";
-import { projectTable } from "../../database/schema";
+import { insertProject } from "./insert-project";
 
 async function createProject(
   workspaceId: string,
   name: string,
   icon: string,
   slug: string,
+  userId: string,
 ) {
-  const [createdProject] = await db
-    .insert(projectTable)
-    .values({
-      workspaceId,
-      name,
-      icon,
-      slug,
-    })
-    .returning();
-
-  return createdProject;
+  return db.transaction((tx) =>
+    insertProject(tx, { workspaceId, name, icon, slug, userId }),
+  );
 }
 
 export default createProject;

@@ -1,32 +1,31 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-US">
 
 <head>
   <meta charset="UTF-8" />
-  <title>Kaneo - Open Source Project Management</title>
-  <meta name="title" content="Kaneo - Open Source Project Management">
+  <title>Kaneo - All you need. Nothing you don't.</title>
+  <meta name="title" content="Kaneo - All you need. Nothing you don't.">
   <meta name="description"
-    content="An open source project management platform focused on simplicity and efficiency. Organize projects, collaborate with your team, and get work done.">
-  <meta name="keywords" content="project management, open source, task management, team collaboration, kanban">
+    content="All you need. Nothing you don't. Open source project management that works for you, not against you.">
+  <meta name="keywords" content="project management, open source, task management, team collaboration, kanban, self-hosted">
 
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://kaneo.app">
-  <meta property="og:title" content="Kaneo - Open Source Project Management">
+  <meta property="og:title" content="Kaneo - All you need. Nothing you don't.">
   <meta property="og:description"
-    content="An open source project management platform focused on simplicity and efficiency. Organize projects, collaborate with your team, and get work done.">
-  <meta property="og:image" content="https://assets.kaneo.app/readme-card.png">
+    content="Open source project management that works for you, not against you. Self-hosted, simple, and powerful.">
+  <meta property="og:image" content="https://assets.kaneo.app/readme.png">
 
   <meta property="twitter:card" content="summary_large_image">
   <meta property="twitter:url" content="https://kaneo.app">
-  <meta property="twitter:title" content="Kaneo - Open Source Project Management">
+  <meta property="twitter:title" content="Kaneo - All you need. Nothing you don't.">
   <meta property="twitter:description"
-    content="An open source project management platform focused on simplicity and efficiency. Organize projects, collaborate with your team, and get work done.">
-  <meta property="twitter:image" content="https://assets.kaneo.app/readme-card.png">
+    content="Open source project management that works for you, not against you. Self-hosted, simple, and powerful.">
+  <meta property="twitter:image" content="https://assets.kaneo.app/readme.png">
 
-  <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <link rel="shortcut icon" href="/favicon.ico" />
-  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+  <link rel="shortcut icon" href="/favicon.svg" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   <meta name="apple-mobile-web-app-title" content="Kaneo" />
   <link rel="manifest" href="/site.webmanifest" />
 
@@ -44,6 +43,9 @@
     }
 
     if (window.location.hostname === 'cloud.kaneo.app') {
+      window.plausible = window.plausible || function () {
+        (window.plausible.q = window.plausible.q || []).push(arguments);
+      };
       const script = document.createElement('script');
       script.defer = true;
       script.setAttribute('data-domain', 'cloud.kaneo.app');

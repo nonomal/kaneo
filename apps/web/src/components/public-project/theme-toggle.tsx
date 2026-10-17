@@ -1,10 +1,12 @@
+import { Moon, Sun } from "lucide-react";
+import type { MouseEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { getClickCoordinates } from "@/lib/get-click-coordinates";
 import { useUserPreferencesStore } from "@/store/user-preferences";
-import { Moon, Sun } from "lucide-react";
-import type { MouseEvent } from "react";
 
 export function ThemeToggle() {
+  const { t } = useTranslation();
   const { theme, setTheme } = useUserPreferencesStore();
 
   const toggleTheme = (event: MouseEvent<HTMLButtonElement>) => {
@@ -14,13 +16,22 @@ export function ThemeToggle() {
   };
 
   return (
-    <Button variant="outline" size="sm" onClick={toggleTheme} className="gap-2">
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={toggleTheme}
+      className="h-8 w-8 p-0"
+      aria-label={
+        theme === "dark"
+          ? t("publicProject:theme.switchToLight")
+          : t("publicProject:theme.switchToDark")
+      }
+    >
       {theme === "dark" ? (
-        <Sun className="w-4 h-4" />
+        <Sun className="w-3.5 h-3.5" />
       ) : (
-        <Moon className="w-4 h-4" />
+        <Moon className="w-3.5 h-3.5" />
       )}
-      {theme === "dark" ? "Light" : "Dark"}
     </Button>
   );
 }

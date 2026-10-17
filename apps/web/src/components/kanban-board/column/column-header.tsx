@@ -1,78 +1,114 @@
-import useUpdateTask from "@/hooks/mutations/task/use-update-task";
-import { getColumnIcon, getColumnIconColor } from "@/lib/column";
+import { produce } from "immer";
+import { Archive, Plus, ArchiveIcon } from "lucide-react";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import CreateTaskModal from "@/components/shared/modals/create-task-modal";
+import { useUpdateTask } from "@/hooks/mutations/task/use-update-task";
+import { useWorkspacePermission } from "@/hooks/use-workspace-permission";
+import { getColumnIcon } from "@/lib/column";
+import { toast } from "@/lib/toast";
 import useProjectStore from "@/store/project";
 import type { ProjectWithTasks } from "@/types/project";
-import { produce } from "immer";
-import { Archive } from "lucide-react";
-import { toast } from "sonner";
+import { ArchiveTasksModal } from "../../shared/modals/archive-tasks-modal";
 
-interface ColumnHeaderProps {
+type ColumnHeaderProps = {
   column: ProjectWithTasks["columns"][number];
-}
+  disableCollectionActions?: boolean;
+};
 
-export function ColumnHeader({ column }: ColumnHeaderProps) {
+export function ColumnHeader({
+  column,
+  disableCollectionActions = false,
+}: ColumnHeaderProps) {
+  const { t } = useTranslation();
   const { project, setProject } = useProjectStore();
   const { mutate: updateTask } = useUpdateTask();
+  const { canUpdateTasks, canCreateTasks } = useWorkspacePermission();
+  const canTask = canUpdateTasks();
+  const canCreate = canCreateTasks();
 
-  const handleArchiveTasks = () => {
-    if (column.id !== "done") return;
+  const [isArchiveModalOpen, setIsArchiveModalOpen] = useState(false);
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
 
-    if (column.tasks.length === 0) {
-      toast.info("No tasks to archive");
-      return;
-    }
-
-    if (!confirm(`Archive all ${column.tasks.length} completed tasks?`)) {
-      return;
-    }
+  const handleConfirmArchive = () => {
+    if (disableCollectionActions || !column.isFinal || !project) return;
 
     const updatedProject = produce(project, (draft) => {
-      const doneColumn = draft?.columns?.find((col) => col.id === "done");
-      if (!doneColumn) return;
+      const archivedColumn = draft?.columns?.find(
+        (col) => col.id === column.id,
+      );
+      if (!archivedColumn) return;
 
-      for (const task of doneColumn.tasks) {
+      for (const task of archivedColumn.tasks) {
         updateTask({
           ...task,
           status: "archived",
         });
       }
 
-      doneColumn.tasks = [];
+      archivedColumn.tasks = [];
     });
 
     setProject(updatedProject);
-    toast.success(`Archived ${column.tasks.length} tasks`);
+    toast.success(t("tasks:archive.success", { count: column.tasks.length }), {
+      icon: ArchiveIcon,
+    });
+    setIsArchiveModalOpen(false);
   };
 
   return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        {(() => {
-          const IconComponent = getColumnIcon(column.id);
-          return (
-            <IconComponent
-              className={`w-4 h-4 ${getColumnIconColor(column.id)}`}
-            />
-          );
-        })()}
-        <h3 className="font-medium text-zinc-900 dark:text-zinc-100">
+    <div className="flex h-8 items-center justify-between gap-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="text-chip-icon">
+          {getColumnIcon(column.id, column.isFinal, column.icon)}
+        </span>
+        <span className="truncate font-medium text-[13px] text-board-title leading-5">
           {column.name}
-        </h3>
-        <span className="text-sm text-zinc-500 dark:text-zinc-500">
+        </span>
+        <span className="text-board-id text-xs tabular-nums">
           {column.tasks.length}
         </span>
       </div>
 
-      {column.id === "done" && column.tasks.length > 0 && (
-        <button
-          type="button"
-          onClick={handleArchiveTasks}
-          className="text-left px-2 py-1.5 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800/50 rounded-md flex items-center transition-all group"
-          title="Archive all completed tasks"
-        >
-          <Archive className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-        </button>
-      )}
+      <div className="flex items-center">
+        {canTask && column.isFinal && column.tasks.length > 0 && (
+          <button
+            type="button"
+            disabled={disableCollectionActions}
+            onClick={() => setIsArchiveModalOpen(true)}
+            className="flex size-6 cursor-pointer items-center justify-center rounded-md text-chip-icon transition-colors hover:bg-chip-hover hover:text-board-title"
+            title={t("tasks:listView.archiveAllTooltip")}
+            aria-label={t("tasks:listView.archiveAllTooltip")}
+          >
+            <Archive className="size-3.5" />
+          </button>
+        )}
+        {canCreate && (
+          <button
+            type="button"
+            onClick={() => setIsTaskModalOpen(true)}
+            className="flex size-6 cursor-pointer items-center justify-center rounded-md text-chip-icon transition-colors hover:bg-chip-hover hover:text-board-title"
+            title={t("tasks:kanban.addTask")}
+          >
+            <Plus className="size-3.5" />
+          </button>
+        )}
+      </div>
+
+      <CreateTaskModal
+        open={isTaskModalOpen}
+        onClose={() => setIsTaskModalOpen(false)}
+        projectId={project?.id}
+        status={column.id}
+      />
+
+      <ArchiveTasksModal
+        open={isArchiveModalOpen}
+        onClose={() => setIsArchiveModalOpen(false)}
+        disabled={disableCollectionActions}
+        onConfirm={handleConfirmArchive}
+        taskCount={column.tasks.length}
+      />
     </div>
   );
 }

@@ -1,5 +1,5 @@
-import deleteComment from "@/fetchers/comment/delete-comment";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import deleteComment from "@/fetchers/comment/delete-comment";
 
 function useDeleteComment(taskId: string) {
   const queryClient = useQueryClient();
@@ -8,6 +8,7 @@ function useDeleteComment(taskId: string) {
     mutationFn: deleteComment,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["activities", taskId] });
+      void queryClient.invalidateQueries({ queryKey: ["workspace-activity"] });
     },
   });
 }

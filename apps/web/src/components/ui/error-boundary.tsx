@@ -1,15 +1,16 @@
+import * as Sentry from "@sentry/react";
 import React from "react";
 import { ErrorDisplay } from "./error-display";
 
-interface ErrorBoundaryState {
+type ErrorBoundaryState = {
   hasError: boolean;
   error?: Error;
-}
+};
 
-interface ErrorBoundaryProps {
+type ErrorBoundaryProps = {
   children: React.ReactNode;
   fallback?: React.ComponentType<{ error: Error; resetError: () => void }>;
-}
+};
 
 export class ErrorBoundary extends React.Component<
   ErrorBoundaryProps,
@@ -26,6 +27,9 @@ export class ErrorBoundary extends React.Component<
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error("Error caught by boundary:", error, errorInfo);
+    Sentry.captureReactException(error, errorInfo, {
+      tags: { area: "react.errorBoundary" },
+    });
   }
 
   resetError = () => {
@@ -45,11 +49,7 @@ export class ErrorBoundary extends React.Component<
       }
 
       return (
-        <ErrorDisplay
-          error={this.state.error}
-          onRetry={this.resetError}
-          title="Something went wrong"
-        />
+        <ErrorDisplay error={this.state.error} onRetry={this.resetError} />
       );
     }
 

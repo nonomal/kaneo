@@ -1,3 +1,8 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
+import { SquarePlusIcon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -15,24 +20,21 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import useCreateWorkspace from "@/hooks/queries/workspace/use-create-workspace";
-import { useUserPreferencesStore } from "@/store/user-preferences";
-import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { authClient } from "@/lib/auth-client";
+import { toast } from "@/lib/toast";
 
-interface CreateWorkspaceModalProps {
+type CreateWorkspaceModalProps = {
   open: boolean;
   onClose: () => void;
-}
+};
 
 function CreateWorkspaceModal({ open, onClose }: CreateWorkspaceModalProps) {
+  const { t } = useTranslation();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const { setActiveWorkspaceId } = useUserPreferencesStore();
   const { mutateAsync } = useCreateWorkspace();
 
   useEffect(() => {
@@ -55,10 +57,15 @@ function CreateWorkspaceModal({ open, onClose }: CreateWorkspaceModalProps) {
 
     try {
       const createdWorkspace = await mutateAsync({ name, description });
-      toast.success("Workspace created successfully");
+      toast.success(t("common:modals.createWorkspace.successToast"), {
+        icon: SquarePlusIcon,
+      });
       await queryClient.invalidateQueries({ queryKey: ["workspaces"] });
 
-      setActiveWorkspaceId(createdWorkspace.id);
+      await authClient.organization.setActive({
+        organizationId: createdWorkspace.id,
+      });
+
       navigate({
         to: "/dashboard/workspace/$workspaceId",
         params: {
@@ -69,7 +76,9 @@ function CreateWorkspaceModal({ open, onClose }: CreateWorkspaceModalProps) {
       handleClose();
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to create workspace",
+        error instanceof Error
+          ? error.message
+          : t("common:modals.createWorkspace.errorToast"),
       );
     }
   };
@@ -81,18 +90,18 @@ function CreateWorkspaceModal({ open, onClose }: CreateWorkspaceModalProps) {
           <DialogTitle asChild>
             <Breadcrumb>
               <BreadcrumbList>
-                <BreadcrumbItem className="text-zinc-600 dark:text-zinc-400 font-semibold tracking-wider text-sm">
-                  KANEO
+                <BreadcrumbItem className="text-muted-foreground font-semibold tracking-wider text-sm">
+                  {t("common:modals.createWorkspace.breadcrumbKaneo")}
                 </BreadcrumbItem>
                 <BreadcrumbSeparator />
-                <BreadcrumbItem className="text-zinc-700 dark:text-zinc-300 font-medium text-sm">
-                  Create a new workspace
+                <BreadcrumbItem className="text-foreground font-medium text-sm">
+                  {t("common:modals.createWorkspace.title")}
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Create a new workspace by providing a name for your workspace.
+            {t("common:modals.createWorkspace.description")}
           </DialogDescription>
         </DialogHeader>
 
@@ -100,18 +109,22 @@ function CreateWorkspaceModal({ open, onClose }: CreateWorkspaceModalProps) {
           <div className="space-y-4 px-6">
             <Input
               ref={inputRef}
+              unstyled
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Workspace name"
-              className="!text-2xl font-semibold !border-0 px-0 py-3 !shadow-none focus-visible:!ring-0 !bg-transparent text-zinc-900 dark:text-white placeholder:text-zinc-500 dark:placeholder:text-zinc-400 tracking-tight focus:!outline-none focus-visible:!outline-none"
+              placeholder={t("common:modals.createWorkspace.namePlaceholder")}
+              className="w-full [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:px-0 [&_[data-slot=input]]:py-2 [&_[data-slot=input]]:text-2xl [&_[data-slot=input]]:leading-tight [&_[data-slot=input]]:font-semibold [&_[data-slot=input]]:tracking-tight [&_[data-slot=input]]:text-foreground [&_[data-slot=input]]:placeholder:text-muted-foreground [&_[data-slot=input]]:outline-none"
               required
             />
 
             <Input
+              unstyled
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Add description..."
-              className="!border-0 px-0 py-2 !shadow-none focus-visible:!ring-0 !bg-transparent text-zinc-700 dark:text-zinc-300 placeholder:text-zinc-500 dark:placeholder:text-zinc-400 focus:!outline-none focus-visible:!outline-none"
+              placeholder={t(
+                "common:modals.createWorkspace.descriptionPlaceholder",
+              )}
+              className="w-full [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:px-0 [&_[data-slot=input]]:py-2 [&_[data-slot=input]]:text-base [&_[data-slot=input]]:leading-relaxed [&_[data-slot=input]]:text-foreground [&_[data-slot=input]]:placeholder:text-muted-foreground [&_[data-slot=input]]:outline-none"
             />
           </div>
 
@@ -121,17 +134,17 @@ function CreateWorkspaceModal({ open, onClose }: CreateWorkspaceModalProps) {
               onClick={handleClose}
               variant="outline"
               size="sm"
-              className="border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              className="border-border text-foreground hover:bg-accent"
             >
-              Cancel
+              {t("common:actions.cancel")}
             </Button>
             <Button
               type="submit"
               disabled={!name.trim()}
               size="sm"
-              className="bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50"
+              className="disabled:opacity-50"
             >
-              Create Workspace
+              {t("common:modals.createWorkspace.createButton")}
             </Button>
           </DialogFooter>
         </form>

@@ -1,180 +1,86 @@
-# Environment Setup Guide
+# Local development setup
 
-This guide will help you set up the Kaneo development environment and troubleshoot common issues.
+Use Node.js 24.11 or newer in the 24.x line, or Node.js 26+, and pnpm 10.32.1, as declared in the root `package.json`. You also need a local PostgreSQL database. Redis and object storage are optional.
 
-## Quick Start
+## Configure the API
 
-1. Copy the sample environment files:
-   ```bash
-   cp apps/api/.env.sample apps/api/.env
-   cp apps/web/.env.sample apps/web/.env
-   ```
+Create `.env` in the repository root. If you copy `.env.sample`, replace its empty secrets and choose a database address that the API can reach.
 
-2. Update the environment variables in both files (see sections below)
+```env
+KANEO_CLIENT_URL=http://localhost:5173
+KANEO_API_URL=http://localhost:1337
+DATABASE_URL=postgresql://kaneo:YOUR_LOCAL_PASSWORD@localhost:5432/kaneo
+AUTH_SECRET=REPLACE_WITH_A_RANDOM_SECRET
+```
 
-3. Start the development servers:
-   ```bash
-   pnpm dev
-   ```
+Generate the authentication secret with `openssl rand -hex 32`. Keep it stable between runs. It protects authentication.
 
-## API Environment Variables
+Create the database and user before starting the API. The API applies committed migrations at startup. Use a development database, never a production database.
 
-Create `apps/api/.env` with the following variables:
+An explicit `DATABASE_URL` takes precedence over `POSTGRES_*`. You do not need both. If you choose derived configuration, set `POSTGRES_PASSWORD` and `POSTGRES_HOST=localhost` for a host-native API. The default hostname `postgres` is for containers sharing a Compose network. `POSTGRES_DB` and `POSTGRES_USER` alone do not enable derivation.
 
-### Required Variables
+The bundled Docker image derives `KANEO_API_URL` from `KANEO_CLIENT_URL`. Host-native development does not run that entrypoint, so set the two URLs explicitly as above.
 
-- `DATABASE_URL`: PostgreSQL connection string
-  ```
-  DATABASE_URL=postgresql://kaneo_user:kaneo_password@localhost:5432/kaneo
-  ```
+## Configure the browser
 
-- `JWT_ACCESS`: Secret key for JWT token generation
-  ```
-  JWT_ACCESS=your-development-secret-here
-  ```
+The API reads the root `.env`. Vite reads frontend overrides from `apps/web/.env.local`.
 
-### Optional Variables
+The default development API address is `http://localhost:1337`. To change it, create:
 
-- `DISABLE_REGISTRATION`: Set to "true" to disable new user registration
-- `DEMO_MODE`: Set to "true" to enable demo mode for testing
-- `CORS_ORIGINS`: Comma-separated list of allowed origins
-  ```
-  CORS_ORIGINS=http://localhost:3000,https://yourdomain.com
-  ```
-- `PORT`: API server port (default: 1337)
+```env
+# apps/web/.env.local
+VITE_API_URL=http://localhost:1337
+```
 
-### GitHub Integration (Optional)
+Only put public browser configuration in `VITE_*` variables. Never put database passwords, API keys, or provider secrets there. Restart Vite after changing the file.
 
-- `GITHUB_APP_ID`: GitHub App ID for repository integration
-- `GITHUB_PRIVATE_KEY`: GitHub App Private Key (PEM format)
-- `GITHUB_WEBHOOK_SECRET`: GitHub App Webhook Secret
-- `GITHUB_APP_NAME`: GitHub App Name
+The production containers use different names: their startup script replaces `KANEO_API_URL`, `KANEO_CLIENT_URL`, and `KANEO_TURNSTILE_SITE_KEY` in the built assets. Editing `VITE_API_URL` in a running container does not change its API address.
 
-## Frontend Environment Variables
+## Install and start
 
-Create `apps/web/.env` with the following variables:
+From the repository root:
 
-### Required Variables
+```bash
+pnpm install
+pnpm dev
+```
 
-- `VITE_API_URL`: URL of the API server
-  ```
-  VITE_API_URL=http://localhost:1337
-  ```
+Open http://localhost:5173. Check API readiness separately:
 
-### Optional Variables
+```bash
+curl --fail http://localhost:1337/api/health
+```
 
-- `VITE_APP_URL`: App URL for generating links
-  ```
-  VITE_APP_URL=http://localhost:3000
-  ```
+The first non-guest account completes instance setup. Keep this local instance private until you have created it.
 
-## Common Issues & Troubleshooting
+## Optional features
 
-### CORS Errors
+Use the [environment reference](https://kaneo.app/docs/core/installation/environment-variables) for server settings and defaults.
 
-**Symptoms:**
-- "Failed to fetch" errors in browser console
-- Network errors when making API requests
-- "Access to fetch at '...' from origin '...' has been blocked by CORS policy"
+- **Uploads:** configure S3-compatible storage. [Silo](https://kaneo.app/docs/core/installation/silo) is the documented self-hosted option. The API and browser must both reach its endpoint.
+- **Email:** configure SMTP. Email verification codes become the default sign-in method; `DISABLE_EMAIL_OTP_SIGN_IN=true` keeps password sign-in. Invitations and password resets still use SMTP.
+- **Sign-in providers:** configure OAuth credentials on the API and register the local callback URL with the provider.
+- **MCP:** the built-in endpoint uses `KANEO_INTERNAL_API_URL`, defaulting to `http://127.0.0.1:1337`, for internal tool requests. Device authorization allows `kaneo-cli` and `kaneo-mcp` by default.
+- **Private-network connections:** `KANEO_ALLOW_PRIVATE_WEBHOOK_DESTINATIONS=true` permits internal ntfy, Gotify, webhook, Gitea, GitLab, and import source (PLANKA, Plane, Kaneo) destinations. Only enable it on a trusted deployment.
+- **Trello imports:** `TRELLO_API_KEY` is the API key of a Trello Power-Up. Workspace admins starting a Trello import get a link to Trello's authorize page built from it; without it, they paste their own API key next to the token.
+- **Redis:** only needed to relay live updates between multiple API instances. Leave it unset for one local API process.
+- **CAPTCHA:** set `TURNSTILE_SECRET_KEY` in the root `.env` and the matching `VITE_TURNSTILE_SITE_KEY` in `apps/web/.env.local`. The secret enables verification independently of cloud mode. Configure a widget that accepts your development hostname.
+- **Sentry:** `SENTRY_DSN` enables API reporting. A browser build reads `VITE_SENTRY_DSN`; the current container renderer does not substitute `KANEO_SENTRY_DSN` at runtime. Leave reporting unset if you do not need it.
 
-**Solutions:**
+After initial setup, when `DISABLE_REGISTRATION=true`, sign-in emails (OTP codes and magic links) are only sent to addresses that already have an account or hold a pending workspace invitation; unknown addresses get a generic success response with no email. When `DISABLE_PASSWORD_REGISTRATION=true`, only existing accounts receive them. An empty instance with `DISABLE_REGISTRATION=true` still accepts sign-in emails for any address until the first non-guest account is created.
 
-1. **Check API URL Configuration:**
-   - Ensure `VITE_API_URL` in frontend `.env` matches your API server URL
-   - Verify the API server is running on the correct port
+Sign-in email eligibility checks and delivery run in the API process after the request is accepted, so the response does not wait for SMTP. Pending sends are given up to 10 seconds to finish during graceful shutdown; they are not persisted across a process crash.
 
-2. **Configure CORS Origins:**
-   - Add your frontend URL to `CORS_ORIGINS` in API `.env`:
-     ```
-     CORS_ORIGINS=http://localhost:3000,https://yourdomain.com
-     ```
-   - For development, you can leave `CORS_ORIGINS` empty to allow all origins
+## Troubleshooting
 
-3. **Check Protocol Consistency:**
-   - Ensure both frontend and API use the same protocol (http/https)
-   - Don't mix http and https in development
+| Symptom | Check |
+| --- | --- |
+| API cannot resolve `postgres` | Use `localhost` in the database URL when the API runs on your host. |
+| Database authentication fails | Confirm the database exists and the URL matches its actual user and password. |
+| Browser requests reach the wrong API | Check `apps/web/.env.local`, then restart Vite. |
+| CORS or WebSocket origin error | Set `KANEO_CLIENT_URL` to the exact browser origin. Put additional allowed origins in the comma-separated `CORS_ORIGINS` value. |
+| OAuth returns to the wrong address | Check `KANEO_API_URL` and the provider callback URL. |
+| Sign-in breaks after restarting | Keep `AUTH_SECRET` unchanged and ensure every API process uses the same value. |
+| Upload URL cannot be reached | Use an endpoint the browser can resolve, not a Docker-only storage hostname. |
 
-4. **Verify Server Accessibility:**
-   - Test if the API is accessible: `curl http://localhost:1337/config`
-   - Check if the server is running on the correct port
-
-### Database Connection Issues
-
-**Symptoms:**
-- "Database connection failed" errors
-- API server won't start
-
-**Solutions:**
-
-1. **Check PostgreSQL:**
-   - Ensure PostgreSQL is running
-   - Verify database exists and credentials are correct
-   - Test connection: `psql postgresql://kaneo_user:kaneo_password@localhost:5432/kaneo`
-
-2. **Update DATABASE_URL:**
-   - Ensure the connection string format is correct
-   - Check username, password, host, port, and database name
-
-### Authentication Issues
-
-**Symptoms:**
-- "Authentication failed" errors
-- Users can't sign in
-
-**Solutions:**
-
-1. **Check JWT Configuration:**
-   - Ensure `JWT_ACCESS` is set in API `.env`
-   - Use a strong secret in production
-
-2. **Clear Browser Data:**
-   - Clear cookies and local storage
-   - Try in incognito/private mode
-
-### Network Errors
-
-**Symptoms:**
-- "Network error" messages
-- API requests timeout
-
-**Solutions:**
-
-1. **Check Server Status:**
-   - Verify API server is running
-   - Check server logs for errors
-
-2. **Check Firewall/Proxy:**
-   - Ensure ports are not blocked
-   - Check if proxy settings interfere
-
-3. **Verify URLs:**
-   - Check that all URLs are accessible
-   - Test with curl or browser
-
-## Development vs Production
-
-### Development
-- Use `http://localhost` for both frontend and API
-- Leave `CORS_ORIGINS` empty to allow all origins
-- Use simple JWT secrets (not for production)
-
-### Production
-- Use HTTPS for both frontend and API
-- Set specific `CORS_ORIGINS` for security
-- Use strong, unique JWT secrets
-- Configure proper database credentials
-
-## Getting Help
-
-If you're still experiencing issues:
-
-1. Check the browser console for detailed error messages
-2. Review the API server logs
-3. Verify all environment variables are set correctly
-4. Ensure all services (PostgreSQL, API, Frontend) are running
-
-The application now includes enhanced error handling that will provide specific troubleshooting steps for common issues like CORS problems.
-
-## Testing Error Handling
-
-You can test the error handling by visiting `/test-error` in your browser. This will show you how the error display component looks and what troubleshooting steps are provided for different types of errors. 
+For deployed instances, use the [self-hosting guide](https://kaneo.app/docs/core/installation) and [operations troubleshooting](https://kaneo.app/docs/core/operations/troubleshooting).

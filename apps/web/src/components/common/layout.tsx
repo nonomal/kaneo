@@ -1,53 +1,58 @@
+import type React from "react";
+import type { ReactNode } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { DemoAlert } from "@/components/demo-alert";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { isDemoMode } from "@/constants/urls";
 import { useUserPreferencesEffects } from "@/hooks/use-user-preferences-effects";
+import { cn } from "@/lib/cn";
+import { useBackgroundStore } from "@/store/background";
 import { useUserPreferencesStore } from "@/store/user-preferences";
-import { motion } from "framer-motion";
-import type { ReactNode } from "react";
-import type React from "react";
 
-interface LayoutProps {
+type LayoutProps = {
   children: ReactNode;
-}
+  className?: string;
+};
 
-interface HeaderProps {
+type HeaderProps = {
   children: ReactNode;
-}
+  className?: string;
+};
 
-interface ContentProps {
+type ContentProps = {
   children: ReactNode;
-}
+  className?: string;
+};
 
-function LayoutHeader({ children }: HeaderProps) {
+function LayoutHeader({ children, className }: HeaderProps) {
   return (
-    <motion.header
-      initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="flex h-10 shrink-0 gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-8 border-b border-border bg-card p-2"
+    <header
+      className={cn(
+        "flex h-10 shrink-0 gap-2 transition-[width,height] ease-in-out group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-8 border-b border-border bg-card p-2",
+        className,
+      )}
     >
       {children}
-    </motion.header>
+    </header>
   );
 }
 
-function LayoutContent({ children }: ContentProps) {
+function LayoutContent({ children, className }: ContentProps) {
   return (
-    <div className="flex-1 min-h-0">
+    <div className={cn("flex-1 min-h-0", className)}>
       <div className="h-full">{children}</div>
     </div>
   );
 }
 
-function Layout({ children }: LayoutProps) {
+function Layout({ children, className }: LayoutProps) {
   const { sidebarDefaultOpen } = useUserPreferencesStore();
+  const { background } = useBackgroundStore();
 
   useUserPreferencesEffects();
 
   return (
-    <div className="flex w-full bg-sidebar">
+    <div className="flex w-full bg-background">
       <SidebarProvider
         defaultOpen={sidebarDefaultOpen}
         style={
@@ -58,7 +63,20 @@ function Layout({ children }: LayoutProps) {
         }
       >
         <AppSidebar />
-        <SidebarInset className="flex-1 flex flex-col overflow-auto bg-card border border-border rounded-md m-2">
+        <SidebarInset
+          className={cn(
+            "m-2 flex flex-1 flex-col overflow-auto rounded-xl border border-border/80 bg-background shadow-sm/5",
+            {
+              "before:content-[''] before:absolute before:inset-0 before:bg-cover before:bg-center before:bg-(image:--bg) before:pointer-events-none":
+                background,
+            },
+            className,
+          )}
+          style={{
+            // @ts-expect-error variables are not typed by React
+            "--bg": `url(${background})`,
+          }}
+        >
           {isDemoMode && <DemoAlert />}
           {children}
         </SidebarInset>

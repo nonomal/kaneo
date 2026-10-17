@@ -1,42 +1,49 @@
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, isNotNull, or } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import db from "../../database";
-import { workspaceTable, workspaceUserTable } from "../../database/schema";
+import {
+  userTable,
+  workspaceTable,
+  workspaceUserTable,
+} from "../../database/schema";
+import { instanceAdminRoleSql } from "../../utils/instance-admin-role";
+import { workspaceAccessColumns } from "../can-read-workspace";
+import { filterReadableWorkspaces } from "../filter-readable-workspaces";
+import {
+  toWorkspaceResponse,
+  workspaceColumns,
+} from "../to-workspace-response";
 
-async function getWorkspace(userId: string, workspaceId: string) {
-  const [existingWorkspace] = await db
-    .select({
-      id: workspaceTable.id,
-      name: workspaceTable.name,
-      ownerId: workspaceTable.ownerId,
-      description: workspaceTable.description,
-      createdAt: workspaceTable.createdAt,
-    })
+async function getWorkspace(workspaceId: string, userId: string) {
+  const rows = await db
+    .select({ ...workspaceColumns, ...workspaceAccessColumns })
     .from(workspaceTable)
+    .innerJoin(userTable, eq(userTable.id, userId))
     .leftJoin(
       workspaceUserTable,
-      eq(workspaceTable.id, workspaceUserTable.workspaceId),
+      and(
+        eq(workspaceUserTable.workspaceId, workspaceTable.id),
+        eq(workspaceUserTable.userId, userTable.id),
+      ),
     )
     .where(
       and(
         eq(workspaceTable.id, workspaceId),
         or(
-          eq(workspaceTable.ownerId, userId),
-          eq(workspaceUserTable.userId, userId),
+          isNotNull(workspaceUserTable.id),
+          instanceAdminRoleSql(userTable.role),
         ),
       ),
     )
+    .orderBy(workspaceUserTable.joinedAt, workspaceUserTable.id)
     .limit(1);
 
-  const isWorkspaceExisting = Boolean(existingWorkspace);
-
-  if (!isWorkspaceExisting) {
-    throw new HTTPException(404, {
-      message: "Workspace not found",
-    });
+  const [row] = await filterReadableWorkspaces(rows);
+  if (!row) {
+    throw new HTTPException(404, { message: "Workspace not found" });
   }
 
-  return existingWorkspace;
+  return toWorkspaceResponse(row);
 }
 
 export default getWorkspace;

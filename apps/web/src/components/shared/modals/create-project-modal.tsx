@@ -1,3 +1,8 @@
+import { useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { SquarePlusIcon } from "lucide-react";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -21,13 +26,11 @@ import {
 } from "@/components/ui/popover";
 import icons from "@/constants/project-icons";
 import useCreateProject from "@/hooks/mutations/project/use-create-project";
+import useActiveWorkspace from "@/hooks/queries/workspace/use-active-workspace";
+import { useCanImport } from "@/hooks/use-can-import";
 import { cn } from "@/lib/cn";
 import generateProjectSlug from "@/lib/generate-project-id";
-import useWorkspaceStore from "@/store/workspace";
-import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 
 type CreateProjectModalProps = {
   open: boolean;
@@ -35,19 +38,26 @@ type CreateProjectModalProps = {
 };
 
 function CreateProjectModal({ open, onClose }: CreateProjectModalProps) {
+  const { t } = useTranslation();
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [selectedIcon, setSelectedIcon] = useState("Layout");
   const [iconPopoverOpen, setIconPopoverOpen] = useState(false);
+  const [iconSearch, setIconSearch] = useState("");
   const queryClient = useQueryClient();
-  const { workspace } = useWorkspaceStore();
+  const { data: workspace } = useActiveWorkspace();
+  const { canImport } = useCanImport();
   const { mutateAsync } = useCreateProject({
     name,
     slug,
     workspaceId: workspace?.id ?? "",
     icon: selectedIcon,
   });
-  const IconComponent = icons[selectedIcon as keyof typeof icons];
+  const SelectedIcon =
+    icons[selectedIcon as keyof typeof icons] || icons.Layout;
+  const filteredIcons = Object.entries(icons).filter(([iconName]) =>
+    iconName.toLowerCase().includes(iconSearch.trim().toLowerCase()),
+  );
   const navigate = useNavigate();
 
   const handleClose = () => {
@@ -55,6 +65,7 @@ function CreateProjectModal({ open, onClose }: CreateProjectModalProps) {
     setSlug("");
     setSelectedIcon("Layout");
     setIconPopoverOpen(false);
+    setIconSearch("");
     onClose();
   };
 
@@ -64,7 +75,7 @@ function CreateProjectModal({ open, onClose }: CreateProjectModalProps) {
 
     try {
       const { id } = await mutateAsync();
-      toast.success("Project created successfully");
+      toast.success("Project created successfully", { icon: SquarePlusIcon });
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
 
       navigate({
@@ -78,7 +89,9 @@ function CreateProjectModal({ open, onClose }: CreateProjectModalProps) {
       handleClose();
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to create project",
+        error instanceof Error
+          ? error.message
+          : t("common:modals.createProject.errorToast"),
       );
     }
   };
@@ -92,97 +105,133 @@ function CreateProjectModal({ open, onClose }: CreateProjectModalProps) {
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="max-w-md" showCloseButton={false}>
-        <DialogHeader className="pb-6">
-          <DialogTitle asChild>
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem className="text-zinc-600 dark:text-zinc-400 font-semibold tracking-wider text-sm">
-                  {workspace?.name?.toUpperCase() || "WORKSPACE"}
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem className="text-zinc-700 dark:text-zinc-300 font-medium text-sm">
-                  Create a new project
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
+        <DialogHeader className="px-3 pt-4 pb-1 gap-1.5">
+          <DialogTitle className="sr-only">
+            {t("common:modals.createProject.title")}
           </DialogTitle>
+          <Breadcrumb>
+            <BreadcrumbList className="gap-1 text-xs">
+              <BreadcrumbItem className="text-muted-foreground font-medium tracking-wide">
+                {workspace?.name?.toUpperCase() ||
+                  t("common:modals.createProject.workspaceFallback")}
+              </BreadcrumbItem>
+              <BreadcrumbSeparator className="[&>svg]:size-3.5" />
+              <BreadcrumbItem className="text-foreground font-medium">
+                {t("common:modals.createProject.breadcrumbNew")}
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
           <DialogDescription className="sr-only">
-            Create a new project in your workspace by providing a name, key, and
-            selecting an icon.
+            {t("common:modals.createProject.description")}
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="space-y-4 px-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-6 px-3 pt-2">
             <Popover
               open={iconPopoverOpen}
-              onOpenChange={setIconPopoverOpen}
+              onOpenChange={(open) => {
+                setIconPopoverOpen(open);
+                if (!open) setIconSearch("");
+              }}
               modal={true}
             >
               <PopoverTrigger asChild>
-                <button
+                <Button
                   type="button"
-                  className="flex items-center justify-center p-2 rounded border border-border hover:border-zinc-400 dark:hover:border-zinc-600 transition-colors"
+                  variant="outline"
+                  size="icon-sm"
+                  className="h-8 w-8 p-0"
+                  title={t("common:modals.createProject.pickIcon")}
                 >
-                  <IconComponent className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
-                </button>
+                  <SelectedIcon className="h-4 w-4" />
+                </Button>
               </PopoverTrigger>
-              <PopoverContent className="w-80 p-2" align="start">
-                <div className="max-h-[300px] overflow-y-auto">
-                  <div className="grid grid-cols-8 gap-2">
-                    {Object.entries(icons).map(([iconName, Icon]) => (
-                      <button
-                        key={iconName}
-                        type="button"
-                        onClick={() => {
-                          setSelectedIcon(iconName);
-                          setIconPopoverOpen(false);
-                        }}
-                        className={cn(
-                          "p-2 rounded-lg transition-all duration-200 flex items-center justify-center group hover:scale-105",
-                          selectedIcon === iconName
-                            ? "bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400"
-                            : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-700",
-                        )}
-                        title={iconName}
-                      >
-                        <Icon className="w-4 h-4" />
-                      </button>
-                    ))}
+              <PopoverContent className="w-64 p-2" align="start">
+                <div className="space-y-2">
+                  <Input
+                    value={iconSearch}
+                    onChange={(e) => setIconSearch(e.target.value)}
+                    placeholder={t("common:modals.createProject.searchIcons")}
+                    className="h-8 text-base sm:text-xs"
+                  />
+                  <div className="max-h-[280px] overflow-y-auto pr-1">
+                    <div className="grid grid-cols-6 gap-1.5">
+                      {filteredIcons.map(([iconName, Icon]) => {
+                        const isSelected = selectedIcon === iconName;
+                        return (
+                          <Button
+                            key={iconName}
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedIcon(iconName);
+                              setIconPopoverOpen(false);
+                              setIconSearch("");
+                            }}
+                            className={cn(
+                              "h-10 items-center justify-center rounded-md p-0",
+                              isSelected &&
+                                "bg-sidebar-accent text-sidebar-accent-foreground",
+                            )}
+                            title={iconName}
+                          >
+                            <Icon className="h-4 w-4" />
+                          </Button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               </PopoverContent>
             </Popover>
 
             <Input
+              unstyled
               value={name}
               onChange={handleNameChange}
               autoFocus
-              placeholder="Project name"
-              className="!text-2xl font-semibold !border-0 px-0 py-3 !shadow-none focus-visible:!ring-0 !bg-transparent text-zinc-900 dark:text-white placeholder:text-zinc-500 dark:placeholder:text-zinc-400 tracking-tight focus:!outline-none focus-visible:!outline-none"
+              placeholder={t("common:modals.createProject.projectName")}
+              className="w-full [&_[data-slot=input]]:h-auto [&_[data-slot=input]]:px-0 [&_[data-slot=input]]:py-2 [&_[data-slot=input]]:text-2xl [&_[data-slot=input]]:leading-tight [&_[data-slot=input]]:font-semibold [&_[data-slot=input]]:tracking-tight [&_[data-slot=input]]:text-foreground [&_[data-slot=input]]:placeholder:text-muted-foreground [&_[data-slot=input]]:outline-none"
               required
             />
           </div>
 
-          <div className="space-y-4 px-6">
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-gradient-to-r from-zinc-50 to-zinc-100/50 dark:from-zinc-900/50 dark:to-zinc-800/30 border border-zinc-200/50 dark:border-zinc-700/30">
+          <div className="space-y-3 px-3">
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/50 border border-border">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
-                  Key:
+                <span className="text-sm font-medium text-muted-foreground">
+                  {t("common:modals.createProject.keyLabel")}
                 </span>
                 <Input
                   id="project-key"
                   value={slug}
                   onChange={(e) => setSlug(e.target.value)}
                   placeholder="PRO"
-                  className="w-20 h-8 text-center font-semibold text-sm bg-white/80 dark:bg-zinc-900/80 border-zinc-300/50 dark:border-zinc-600/50 rounded-lg focus:bg-white dark:focus:bg-zinc-900 focus:border-indigo-400 dark:focus:border-indigo-500 transition-all duration-200"
+                  maxLength={8}
+                  className="w-20 h-8 text-center font-semibold text-base sm:text-sm bg-background border-border rounded-lg transition-colors duration-150"
                   required
                 />
               </div>
-              <div className="flex-1 text-xs text-zinc-500 dark:text-zinc-400 opacity-80">
-                Used for ticket IDs (e.g., {slug || "ABC"}-123)
+              <div className="flex-1 text-xs text-muted-foreground opacity-80">
+                {t("common:modals.createProject.keyHint", {
+                  example: slug || "ABC",
+                })}
               </div>
             </div>
+            {canImport && (
+              <p className="text-muted-foreground text-xs">
+                {t("settings:workspaceImport.entry.createProjectPrompt")}{" "}
+                <Link
+                  to="/dashboard/settings/workspace/import"
+                  onClick={handleClose}
+                  className="font-medium text-foreground underline-offset-4 hover:underline"
+                >
+                  {t("settings:workspaceImport.entry.createProjectLink")}
+                </Link>
+              </p>
+            )}
           </div>
 
           <DialogFooter>
@@ -191,17 +240,17 @@ function CreateProjectModal({ open, onClose }: CreateProjectModalProps) {
               onClick={handleClose}
               variant="outline"
               size="sm"
-              className="border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              className="border-border text-foreground hover:bg-accent"
             >
-              Cancel
+              {t("common:actions.cancel")}
             </Button>
             <Button
               type="submit"
               disabled={!name.trim() || !slug.trim()}
               size="sm"
-              className="bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50"
+              className="bg-primary hover:bg-primary/90  disabled:opacity-50"
             >
-              Create Project
+              {t("common:modals.createProject.createButton")}
             </Button>
           </DialogFooter>
         </form>

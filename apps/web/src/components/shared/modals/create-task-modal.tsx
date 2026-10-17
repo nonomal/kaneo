@@ -1,4 +1,37 @@
-import { Editor } from "@/components/common/editor";
+import { useLocation, useParams } from "@tanstack/react-router";
+import { produce } from "immer";
+import {
+  CalendarIcon,
+  CircleAlert,
+  Check,
+  FolderKanban,
+  Plus,
+  Search,
+  Tag,
+  UserIcon,
+  X,
+  TagIcon,
+  SquarePlusIcon,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { CustomFieldChip } from "@/components/custom-fields/custom-field-chip";
+import {
+  findMissingRequiredFields,
+  isCustomFieldValueEmpty,
+} from "@/components/custom-fields/missing-required-fields";
+import type { CustomFieldDefinition } from "@/components/project/custom-fields/types";
+import TaskDescriptionEditor from "@/components/task/task-description-editor";
+import {
+  AlertDialog,
+  AlertDialogClose,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
   Breadcrumb,
@@ -6,8 +39,8 @@ import {
   BreadcrumbList,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { DatePickerMenu } from "@/components/common/date-picker/date-picker-menu";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
 import {
   Dialog,
   DialogContent,
@@ -16,41 +49,45 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { useGetColumns } from "@/hooks/queries/column/use-get-columns";
+import { getColumnIcon } from "@/lib/column";
+import { getStatusDisplayLabel } from "@/lib/i18n/domain";
 import useCreateLabel from "@/hooks/mutations/label/use-create-label";
 import useCreateTask from "@/hooks/mutations/task/use-create-task";
-import useUpdateTask from "@/hooks/mutations/task/use-update-task";
-import useGetActiveWorkspaceUsers from "@/hooks/queries/workspace-users/use-active-workspace-users";
+import useGetCustomFieldsByProject from "@/hooks/queries/custom-field/use-get-custom-fields-by-project";
+import useGetLabelsByWorkspace from "@/hooks/queries/label/use-get-labels-by-workspace";
+import useGetProjects from "@/hooks/queries/project/use-get-projects";
+import useActiveWorkspace from "@/hooks/queries/workspace/use-active-workspace";
+import { useGetActiveWorkspaceUsers } from "@/hooks/queries/workspace-users/use-get-active-workspace-users";
+import useGetProjectMembers from "@/hooks/queries/workspace-users/use-get-project-members";
+import { useWorkspacePermission } from "@/hooks/use-workspace-permission";
 import { cn } from "@/lib/cn";
+import { uploadDraftAsset } from "@/lib/upload-draft-asset";
+import { formatDateMedium } from "@/lib/format";
+import { getInitials } from "@/lib/get-initials";
+import { resolveLabelColor } from "@/lib/label-color";
+import { getPriorityIcon } from "@/lib/priority";
+import { toast } from "@/lib/toast";
+import { useAutoGrowTextarea } from "@/hooks/use-auto-grow-textarea";
+import { stripLineBreaks } from "@/lib/strip-line-breaks";
 import useProjectStore from "@/store/project";
-import useWorkspaceStore from "@/store/workspace";
-import { format } from "date-fns";
-import { produce } from "immer";
-import {
-  CalendarIcon,
-  Check,
-  Flag,
-  PlusIcon,
-  Search,
-  Tag,
-  Target,
-  UserIcon,
-} from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import type Task from "@/types/task";
+import { getInitialTaskColumn } from "./initial-task-column";
 
-interface CreateTaskModalProps {
+type CreateTaskModalProps = {
   open: boolean;
   onClose: () => void;
   status?: string;
-}
+  projectId?: string;
+  instant?: boolean;
+};
 
-type Priority = "low" | "medium" | "high" | "urgent";
+type Priority = "no-priority" | "low" | "medium" | "high" | "urgent";
 
 type LabelColor =
   | "gray"
@@ -64,192 +101,569 @@ type LabelColor =
   | "red";
 
 type Label = {
+  id: string;
   name: string;
-  color: LabelColor;
+  color: string;
+  taskId: string | null;
+  workspaceId: string;
+  createdAt: string;
 };
 
-const labelColors = [
-  { value: "gray" as LabelColor, label: "Grey", color: "#94a3b8" },
-  { value: "dark-gray" as LabelColor, label: "Dark Grey", color: "#64748b" },
-  { value: "purple" as LabelColor, label: "Purple", color: "#a855f7" },
-  { value: "teal" as LabelColor, label: "Teal", color: "#14b8a6" },
-  { value: "green" as LabelColor, label: "Green", color: "#22c55e" },
-  { value: "yellow" as LabelColor, label: "Yellow", color: "#eab308" },
-  { value: "orange" as LabelColor, label: "Orange", color: "#f97316" },
-  { value: "pink" as LabelColor, label: "Pink", color: "#ec4899" },
-  { value: "red" as LabelColor, label: "Red", color: "#ef4444" },
-];
+type PopoverStep = "select" | "color";
 
-function CreateTaskModal({ open, onClose, status }: CreateTaskModalProps) {
+function normalizeTask(
+  task: Partial<Task> &
+    Pick<Task, "id" | "title" | "status" | "projectId" | "createdAt">,
+): Task {
+  return {
+    ...task,
+    number: task.number ?? null,
+    description: task.description ?? null,
+    priority: task.priority ?? null,
+    startDate: task.startDate ?? null,
+    dueDate: task.dueDate ?? null,
+    position: task.position ?? 0,
+    userId: task.userId ?? null,
+    assigneeId: task.assigneeId ?? task.userId ?? null,
+    assigneeName: task.assigneeName ?? null,
+    assigneeImage: task.assigneeImage ?? null,
+    labels: task.labels ?? [],
+    externalLinks: task.externalLinks ?? [],
+  };
+}
+
+function CreateTaskModalContent({
+  open,
+  onClose,
+  status,
+  projectId,
+  instant = false,
+}: CreateTaskModalProps) {
+  const { t } = useTranslation();
   const { project, setProject } = useProjectStore();
-  const { workspace } = useWorkspaceStore();
-  const { mutate: updateTask } = useUpdateTask();
+
+  const labelColors = useMemo(
+    () =>
+      [
+        {
+          value: "gray" as LabelColor,
+          labelKey: "stone" as const,
+          color: "var(--color-stone-500)",
+        },
+        {
+          value: "dark-gray" as LabelColor,
+          labelKey: "slate" as const,
+          color: "var(--color-slate-500)",
+        },
+        {
+          value: "purple" as LabelColor,
+          labelKey: "lavender" as const,
+          color: "var(--color-violet-500)",
+        },
+        {
+          value: "teal" as LabelColor,
+          labelKey: "sage" as const,
+          color: "var(--color-emerald-600)",
+        },
+        {
+          value: "green" as LabelColor,
+          labelKey: "forest" as const,
+          color: "var(--color-green-600)",
+        },
+        {
+          value: "yellow" as LabelColor,
+          labelKey: "amber" as const,
+          color: "var(--color-amber-600)",
+        },
+        {
+          value: "orange" as LabelColor,
+          labelKey: "terracotta" as const,
+          color: "var(--color-orange-600)",
+        },
+        {
+          value: "pink" as LabelColor,
+          labelKey: "rose" as const,
+          color: "var(--color-rose-600)",
+        },
+        {
+          value: "red" as LabelColor,
+          labelKey: "crimson" as const,
+          color: "var(--color-red-600)",
+        },
+      ].map(({ labelKey, ...rest }) => ({
+        ...rest,
+        label: t(`common:modals.createTask.labelColors.${labelKey}`),
+      })),
+    [t],
+  );
+  const location = useLocation();
+  const { data: workspace } = useActiveWorkspace();
+  const { data: workspaceUsers } = useGetActiveWorkspaceUsers(
+    workspace?.id || "",
+  );
   const { mutateAsync: createLabel } = useCreateLabel();
-  const { data: users } = useGetActiveWorkspaceUsers({
-    workspaceId: workspace?.id ?? "",
-  });
+  const { data: workspaceLabels = [] } = useGetLabelsByWorkspace(
+    workspace?.id || "",
+  );
+  const { canCreateTasks, canCreateLabels } = useWorkspacePermission();
+  const canCreateTaskCapability = canCreateTasks();
+  const canCreateLabelCapability = canCreateLabels();
 
   const [title, setTitle] = useState("");
+  const titleRef = useAutoGrowTextarea(title);
   const [description, setDescription] = useState("");
-  const [priority, setPriority] = useState<Priority>("low");
+  const [priority, setPriority] = useState<Priority>("no-priority");
   const [assigneeId, setAssigneeId] = useState("");
+  const [startDate, setStartDate] = useState<Date | undefined>(undefined);
   const [dueDate, setDueDate] = useState<Date | undefined>(undefined);
+  const [startDateOpen, setStartDateOpen] = useState(false);
+  const [dueDateOpen, setDueDateOpen] = useState(false);
   const [createMore, setCreateMore] = useState(false);
   const [labels, setLabels] = useState<Label[]>([]);
+  const [discardConfirmationOpen, setDiscardConfirmationOpen] = useState(false);
 
   const [labelsOpen, setLabelsOpen] = useState(false);
+  const [labelsStep, setLabelsStep] = useState<PopoverStep>("select");
   const [searchValue, setSearchValue] = useState("");
   const [selectedColor, setSelectedColor] = useState<LabelColor>("gray");
-  const [colorPickerOpen, setColorPickerOpen] = useState(false);
+  const [newLabelName, setNewLabelName] = useState("");
+
+  const routeProjectId =
+    location.pathname.match(/\/project\/([^/]+)/)?.[1] ?? null;
+  const explicitProjectId = projectId || routeProjectId || "";
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const { data: workspaceProjects } = useGetProjects({
+    workspaceId: workspace?.id || "",
+  });
+  // Only a project from this workspace's query may receive new content.
+  // The global project store can still contain the last visited workspace.
+  const resolvedProject = workspaceProjects?.find(
+    (candidate) => candidate.id === (explicitProjectId || selectedProjectId),
+  );
+  const resolvedProjectId = resolvedProject?.id ?? "";
+  const { data: projectMembers } = useGetProjectMembers({
+    workspaceId: workspace?.id || "",
+    projectId: resolvedProjectId,
+  });
+  const workspaceAssigneeOptions = useMemo(
+    () =>
+      (workspaceUsers?.members ?? []).map((member) => ({
+        id: member.userId,
+        name: member.user?.name ?? "",
+        image: member.user?.image ?? null,
+      })),
+    [workspaceUsers?.members],
+  );
+  const projectMembersPending =
+    Boolean(resolvedProjectId) && projectMembers === undefined;
+  const assigneeUnconfirmed = Boolean(assigneeId) && projectMembersPending;
+  const assigneeOptions = useMemo(
+    () =>
+      resolvedProjectId
+        ? (projectMembers ?? []).map((member) => ({
+            id: member.id,
+            name: member.name,
+            image: member.image,
+          }))
+        : workspaceAssigneeOptions,
+    [resolvedProjectId, projectMembers, workspaceAssigneeOptions],
+  );
+  const selectedUser =
+    assigneeOptions.find((option) => option.id === assigneeId) ??
+    (projectMembersPending
+      ? workspaceAssigneeOptions.find((option) => option.id === assigneeId)
+      : undefined);
+  const {
+    data: projectColumns,
+    isError: columnsError,
+    refetch: refetchColumns,
+    isFetching: columnsFetching,
+  } = useGetColumns(open ? resolvedProjectId : "", { refreshOnMount: true });
+  const initialColumn = getInitialTaskColumn(projectColumns, status);
+  const taskStatus = status ?? initialColumn?.slug ?? "planned";
+  const awaitingColumns =
+    !status &&
+    Boolean(resolvedProjectId) &&
+    (!projectColumns || columnsFetching || columnsError);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const stagedAssetsRef = useRef<string[]>([]);
+  const pendingUploadsRef = useRef(0);
+  const activeRef = useRef(true);
+  const submittingRef = useRef(false);
+  const [isPreparingDraft, setIsPreparingDraft] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editorVersion, setEditorVersion] = useState(0);
+  const didSubmitRef = useRef(false);
 
-  const { mutateAsync } = useCreateTask();
+  const { mutateAsync: createTask } = useCreateTask();
+
+  const { data: rawCustomFields } = useGetCustomFieldsByProject(
+    resolvedProjectId,
+  ) as { data: CustomFieldDefinition[] | undefined };
+
+  const customFields = useMemo(() => rawCustomFields ?? [], [rawCustomFields]);
+
+  const [customFieldValues, setCustomFieldValues] = useState<
+    Record<string, string>
+  >({});
+
+  const [showMissingRequired, setShowMissingRequired] = useState(false);
+  const missingRequired = findMissingRequiredFields(
+    customFields,
+    customFieldValues,
+  );
+
+  const handleCustomFieldChange = (fieldId: string, value: string) => {
+    setCustomFieldValues((prev) => ({
+      ...prev,
+      [fieldId]: value,
+    }));
+  };
+
+  useEffect(() => {
+    setCustomFieldValues((previousValues) =>
+      Object.fromEntries(
+        customFields.map((field) => [
+          field.id,
+          previousValues[field.id] ?? field.defaultValue ?? "",
+        ]),
+      ),
+    );
+  }, [customFields]);
+
+  const filteredLabels = (() => {
+    const searchFiltered = workspaceLabels.filter((label) =>
+      label.name.toLowerCase().includes(searchValue.toLowerCase()),
+    );
+
+    const labelMap = new Map<string, (typeof workspaceLabels)[0]>();
+    for (const label of searchFiltered) {
+      const existing = labelMap.get(label.name);
+      if (!existing || (label.taskId === null && existing.taskId !== null)) {
+        labelMap.set(label.name, label);
+      }
+    }
+
+    return Array.from(labelMap.values());
+  })();
+
+  const isCreatingNewLabel =
+    searchValue &&
+    !workspaceLabels.some(
+      (label) => label.name.toLowerCase() === searchValue.toLowerCase(),
+    );
+
+  const buildDefaultCustomFieldValues = useCallback(() => {
+    return customFields.reduce<Record<string, string>>((acc, field) => {
+      acc[field.id] = field.defaultValue ?? "";
+      return acc;
+    }, {});
+  }, [customFields]);
+
+  const hasCustomFieldChanges = Object.entries(customFieldValues).some(
+    ([fieldId, value]) => {
+      const field = customFields.find((f) => f.id === fieldId);
+      const defaultValue = field?.defaultValue ?? "";
+      return value !== defaultValue;
+    },
+  );
+
+  const hasUnsavedChanges = Boolean(
+    title.trim() ||
+    description.trim() ||
+    priority !== "no-priority" ||
+    assigneeId ||
+    startDate ||
+    dueDate ||
+    selectedProjectId ||
+    labels.length > 0 ||
+    stagedAssetsRef.current.length > 0 ||
+    hasCustomFieldChanges,
+  );
+
+  useEffect(() => {
+    activeRef.current = true;
+    return () => {
+      activeRef.current = false;
+    };
+  }, []);
 
   const handleClose = () => {
-    setTitle("");
-    setDescription("");
-    setPriority("low");
-    setAssigneeId("");
-    setDueDate(undefined);
-    setCreateMore(false);
-    setLabels([]);
-    setSearchValue("");
-    setSelectedColor("gray");
-    setColorPickerOpen(false);
+    activeRef.current = false;
+
     onClose();
   };
 
+  const closeAndReset = () => {
+    setDiscardConfirmationOpen(false);
+    handleClose();
+  };
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen) return;
+
+    if (hasUnsavedChanges && !didSubmitRef.current) {
+      setDiscardConfirmationOpen(true);
+      return;
+    }
+
+    closeAndReset();
+  };
+
+  const syncTaskIntoProject = useCallback(
+    (task: Task) => {
+      if (!activeRef.current || project?.id !== task.projectId) return;
+
+      const updatedProject = produce(project, (draft) => {
+        let existingTask:
+          | (typeof draft.columns)[number]["tasks"][number]
+          | undefined;
+
+        for (const column of draft.columns ?? []) {
+          const taskIndex = column.tasks.findIndex(
+            (columnTask) => columnTask.id === task.id,
+          );
+
+          if (taskIndex !== -1) {
+            existingTask = column.tasks[taskIndex];
+            column.tasks.splice(taskIndex, 1);
+            break;
+          }
+        }
+
+        if (task.status === "planned" || task.status === "archived") {
+          return;
+        }
+
+        const targetColumn = draft.columns?.find(
+          (column) => column.id === task.status,
+        );
+        if (!targetColumn) return;
+
+        targetColumn.tasks.push({
+          ...existingTask,
+          ...task,
+          assigneeId: task.userId,
+          assigneeName:
+            workspaceUsers?.members?.find(
+              (member) => member.userId === task.userId,
+            )?.user?.name ??
+            existingTask?.assigneeName ??
+            null,
+          assigneeImage:
+            workspaceUsers?.members?.find(
+              (member) => member.userId === task.userId,
+            )?.user?.image ??
+            existingTask?.assigneeImage ??
+            null,
+          position: task.position ?? 0,
+        });
+      });
+
+      setProject(updatedProject);
+    },
+    [project, setProject, workspaceUsers?.members],
+  );
+
+  const stageAsset = useCallback(
+    async (file: File) => {
+      if (!activeRef.current || submittingRef.current || !resolvedProjectId) {
+        throw new Error(t("common:modals.createTask.chooseProjectForImages"));
+      }
+      pendingUploadsRef.current += 1;
+      setIsPreparingDraft(true);
+      try {
+        const asset = await uploadDraftAsset(resolvedProjectId, file);
+        if (!activeRef.current)
+          throw new Error(t("common:modals.createTask.prepareTaskError"));
+        stagedAssetsRef.current.push(asset.id);
+        return asset;
+      } finally {
+        pendingUploadsRef.current -= 1;
+        if (activeRef.current)
+          setIsPreparingDraft(pendingUploadsRef.current > 0);
+      }
+    },
+    [resolvedProjectId, t],
+  );
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !project?.id || !workspace?.id) return;
+    if (
+      !activeRef.current ||
+      submittingRef.current ||
+      pendingUploadsRef.current > 0 ||
+      !canCreateTaskCapability ||
+      awaitingColumns ||
+      !title.trim() ||
+      !resolvedProjectId ||
+      assigneeUnconfirmed ||
+      !workspace?.id
+    )
+      return;
 
+    if (missingRequired.length > 0) {
+      setShowMissingRequired(true);
+      e.currentTarget
+        .querySelector<HTMLElement>(
+          `[data-custom-field="${missingRequired[0].id}"]`,
+        )
+        ?.focus();
+      return;
+    }
+
+    submittingRef.current = true;
+    setIsSubmitting(true);
     try {
-      const taskStatus = status ?? "to-do";
-
-      const newTask = await mutateAsync({
-        title: title.trim(),
-        description: description.trim() || "",
-        userId: assigneeId,
-        priority,
-        projectId: project?.id,
-        dueDate: dueDate ? dueDate.toISOString() : new Date().toISOString(),
-        status: taskStatus,
-      });
+      let submitStatus = taskStatus;
+      if (!status) {
+        const workflow = await refetchColumns();
+        if (!activeRef.current) return;
+        if (workflow.isError || !workflow.data)
+          throw new Error(t("common:modals.createTask.statusLoadError"));
+        submitStatus = getInitialTaskColumn(workflow.data)?.slug ?? "planned";
+      }
+      didSubmitRef.current = true;
+      const savedTask = normalizeTask(
+        await createTask({
+          title: title.trim(),
+          description: description.trim() || "",
+          userId: selectedUser?.id ?? "",
+          priority,
+          projectId: resolvedProjectId,
+          startDate: startDate ? startDate.toISOString() : undefined,
+          dueDate: dueDate ? dueDate.toISOString() : undefined,
+          status: submitStatus,
+          draftAssetIds: stagedAssetsRef.current.filter((id) =>
+            description.includes(`/asset/${id}`),
+          ),
+          customFields: customFields
+            .filter(
+              (field) =>
+                !isCustomFieldValueEmpty(
+                  field.type,
+                  customFieldValues[field.id] ?? "",
+                ),
+            )
+            .map((field) => ({
+              fieldId: field.id,
+              value: customFieldValues[field.id] ?? "",
+            })),
+        }),
+      );
 
       for (const label of labels) {
         try {
           await createLabel({
             name: label.name,
             color: label.color,
-            taskId: newTask.id,
+            taskId: savedTask.id,
+            workspaceId: workspace.id,
           });
         } catch (error) {
           console.error("Failed to create label:", error);
         }
       }
 
-      const updatedProject = produce(project, (draft) => {
-        if (newTask.status !== "planned" && newTask.status !== "archived") {
-          const targetColumn = draft.columns?.find(
-            (col) => col.id === newTask.status,
-          );
-          if (targetColumn) {
-            targetColumn.tasks.push({
-              ...newTask,
-              assigneeId: assigneeId,
-              assigneeName: assigneeId,
-              position: 0,
-            });
-          }
-        }
+      stagedAssetsRef.current = [];
+      if (!activeRef.current) return;
+      syncTaskIntoProject(savedTask);
+      toast.success(t("common:modals.createTask.successCreated"), {
+        icon: SquarePlusIcon,
       });
-
-      setProject(updatedProject);
-      updateTask({ ...newTask, position: 0, assigneeId: assigneeId });
-      toast.success("Task created successfully");
 
       if (createMore) {
         setTitle("");
         setDescription("");
-        setPriority("low");
+        setPriority("no-priority");
         setAssigneeId("");
+        setStartDate(undefined);
         setDueDate(undefined);
         setLabels([]);
+        setLabelsStep("select");
         setSearchValue("");
         setSelectedColor("gray");
-        setColorPickerOpen(false);
+        setNewLabelName("");
+        stagedAssetsRef.current = [];
+        setEditorVersion((version) => version + 1);
+        didSubmitRef.current = false;
+
+        setCustomFieldValues(buildDefaultCustomFieldValues());
+        setShowMissingRequired(false);
       } else {
-        handleClose();
+        closeAndReset();
       }
     } catch (error) {
+      didSubmitRef.current = false;
+      if (!activeRef.current) {
+        return;
+      }
       toast.error(
-        error instanceof Error ? error.message : "Failed to create task",
+        error instanceof Error
+          ? error.message
+          : t("common:modals.createTask.createError"),
       );
+    } finally {
+      submittingRef.current = false;
+      if (activeRef.current) setIsSubmitting(false);
     }
   };
 
-  const priorityOptions = [
-    {
-      value: "low",
-      label: "Low",
-      color: "text-emerald-400",
-      bg: "bg-emerald-500/10",
-      border: "border-emerald-500/20",
-    },
-    {
-      value: "medium",
-      label: "Medium",
-      color: "text-amber-400",
-      bg: "bg-amber-500/10",
-      border: "border-amber-500/20",
-    },
-    {
-      value: "high",
-      label: "High",
-      color: "text-orange-400",
-      bg: "bg-orange-500/10",
-      border: "border-orange-500/20",
-    },
-    {
-      value: "urgent",
-      label: "Urgent",
-      color: "text-red-400",
-      bg: "bg-red-500/10",
-      border: "border-red-500/20",
-    },
-  ];
-
-  const selectedPriority = priorityOptions.find((p) => p.value === priority);
-  const selectedUser = users?.find((u) => u.userId === assigneeId);
-
-  const filteredLabels = labels.filter((label: Label) =>
-    label.name.toLowerCase().includes(searchValue.toLowerCase()),
+  const priorityOptions = useMemo(
+    () =>
+      (["no-priority", "low", "medium", "high", "urgent"] as const).map(
+        (value) => ({
+          value,
+          label: t(`tasks:priority.${value}`),
+        }),
+      ),
+    [t],
   );
 
-  const isCreatingNewLabel =
-    searchValue &&
-    !labels.some(
-      (label: Label) => label.name.toLowerCase() === searchValue.toLowerCase(),
-    );
+  const selectedPriority = priorityOptions.find((p) => p.value === priority);
 
+  const statusLabel = getStatusDisplayLabel(taskStatus, initialColumn?.name);
   useEffect(() => {
-    if (labelsOpen && searchInputRef.current) {
+    if (labelsOpen && labelsStep === "select" && searchInputRef.current) {
       setTimeout(() => searchInputRef.current?.focus(), 100);
     }
-  }, [labelsOpen]);
+  }, [labelsOpen, labelsStep]);
 
-  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && isCreatingNewLabel) {
-      e.preventDefault();
-      handleCreateLabel();
-    } else if (e.key === "Escape") {
-      if (searchValue) {
-        setSearchValue("");
-      } else {
-        setLabelsOpen(false);
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (!open || discardConfirmationOpen) return;
+
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        if (title.trim() && resolvedProjectId && workspace?.id) {
+          const form = document.querySelector("form");
+          if (form) {
+            form.dispatchEvent(
+              new Event("submit", { cancelable: true, bubbles: true }),
+            );
+          }
+        }
       }
-    }
+    },
+    [open, discardConfirmationOpen, title, resolvedProjectId, workspace?.id],
+  );
+
+  useEffect(() => {
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [handleKeyDown]);
+
+  const resetLabelsPopover = () => {
+    setLabelsStep("select");
+    setSearchValue("");
+    setNewLabelName("");
+    setSelectedColor("gray");
+  };
+
+  const handleLabelsClose = () => {
+    setLabelsOpen(false);
+    setTimeout(resetLabelsPopover, 200);
   };
 
   const toggleLabel = (labelName: string) => {
@@ -257,58 +671,96 @@ function CreateTaskModal({ open, onClose, status }: CreateTaskModalProps) {
     if (existingLabel) {
       setLabels(labels.filter((l) => l.name !== labelName));
     } else {
-      const labelToAdd = labels.find((l) => l.name === labelName);
-      if (labelToAdd) {
-        setLabels([...labels.filter((l) => l.name !== labelName), labelToAdd]);
+      const workspaceLabel = workspaceLabels.find((l) => l.name === labelName);
+      if (workspaceLabel) {
+        setLabels([
+          ...labels,
+          {
+            id: workspaceLabel.id,
+            name: workspaceLabel.name,
+            color: workspaceLabel.color,
+            taskId: null,
+            workspaceId: workspaceLabel.workspaceId || "",
+            createdAt: workspaceLabel.createdAt,
+          },
+        ]);
       }
     }
   };
 
-  const handleCreateLabel = () => {
-    if (!searchValue.trim()) return;
+  const handleCreateNewClick = () => {
+    setNewLabelName(searchValue);
+    setLabelsStep("color");
+  };
 
-    const labelExists = labels.some(
-      (label) => label.name.toLowerCase() === searchValue.trim().toLowerCase(),
-    );
+  const handleColorSelect = async (color: LabelColor) => {
+    setSelectedColor(color);
 
-    if (labelExists) {
-      toast.error("Label already exists");
-      return;
+    if (!newLabelName.trim() || !workspace?.id) return;
+
+    try {
+      const createdLabel = await createLabel({
+        name: newLabelName.trim(),
+        color: color,
+        workspaceId: workspace.id,
+      });
+
+      const newLabel: Label = {
+        id: createdLabel.id,
+        name: createdLabel.name,
+        color: createdLabel.color,
+        taskId: createdLabel.taskId ?? null,
+        workspaceId: createdLabel.workspaceId ?? workspace.id,
+        createdAt: createdLabel.createdAt,
+      };
+
+      setLabels([...labels, newLabel]);
+      toast.success(t("common:modals.createTask.labelCreated"), {
+        icon: TagIcon,
+      });
+      handleLabelsClose();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("common:modals.createTask.labelCreateError"),
+      );
     }
-
-    setLabels([...labels, { name: searchValue.trim(), color: selectedColor }]);
-    setSearchValue("");
-    setSelectedColor("gray");
-    searchInputRef.current?.focus();
   };
 
   const removeLabel = (labelName: string) => {
     setLabels(labels.filter((l) => l.name !== labelName));
   };
 
+  // Defense-in-depth: if the user lacks task-create permission, don't render
+  // the modal even if a stale trigger somehow opens it (e.g., keyboard
+  // shortcut after the capability has changed).
+  if (!canCreateTaskCapability) return null;
+
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="max-w-2xl max-h-[90vh] flex flex-col"
+        className="kaneo-create-task-modal max-w-2xl max-h-[90vh] flex flex-col overflow-hidden"
         showCloseButton={false}
+        instant={instant}
       >
         <DialogHeader className="flex-shrink-0">
           <DialogTitle asChild>
             <Breadcrumb>
               <BreadcrumbList>
-                <BreadcrumbItem className="text-zinc-600 dark:text-zinc-400 font-semibold tracking-wider text-sm">
-                  {project?.slug?.toUpperCase() || "TASK"}
+                <BreadcrumbItem className="text-muted-foreground font-semibold tracking-wider text-sm">
+                  {resolvedProject?.slug?.toUpperCase() ||
+                    t("common:modals.createTask.breadcrumbTask")}
                 </BreadcrumbItem>
                 <BreadcrumbSeparator />
-                <BreadcrumbItem className="text-zinc-700 dark:text-zinc-300 font-medium text-sm">
-                  New Task
+                <BreadcrumbItem className="text-foreground font-medium text-sm">
+                  {t("common:modals.createTask.title")}
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Create a new task by providing a title, description, and other
-            details.
+            {t("common:modals.createTask.description")}
           </DialogDescription>
         </DialogHeader>
 
@@ -316,86 +768,192 @@ function CreateTaskModal({ open, onClose, status }: CreateTaskModalProps) {
           onSubmit={handleSubmit}
           className="flex flex-col flex-1 min-h-0 space-y-6"
         >
-          <div className="space-y-6 px-6">
-            <Input
+          <div className="flex-1 min-h-0 overflow-y-auto space-y-6 px-6">
+            <textarea
+              ref={titleRef}
+              rows={1}
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => setTitle(stripLineBreaks(e.target.value))}
+              onKeyDown={(e) => {
+                // Single-line title: Enter submits like the input it replaced.
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                  e.preventDefault();
+                  e.currentTarget.form?.requestSubmit();
+                }
+              }}
               autoFocus
-              placeholder="Task title"
-              className="!text-2xl font-semibold !border-0 px-0 py-3 !shadow-none focus-visible:!ring-0 !bg-transparent text-zinc-900 dark:text-white placeholder:text-zinc-500 dark:placeholder:text-zinc-400 tracking-tight focus:!outline-none focus-visible:!outline-none"
+              placeholder={t("common:modals.createTask.taskTitlePlaceholder")}
+              aria-label={t("common:modals.createTask.taskTitlePlaceholder")}
+              className="block w-full resize-none overflow-hidden border-0 bg-transparent px-0 py-3 font-semibold text-2xl text-foreground leading-tight tracking-tight outline-none placeholder:text-muted-foreground"
               required
             />
 
-            <div className="h-[300px] border bg-white dark:bg-zinc-900 border-zinc-200/50 dark:border-zinc-800/50 rounded-lg overflow-hidden">
-              <Editor value={description} onChange={setDescription} />
+            <div className="min-h-[200px]">
+              <TaskDescriptionEditor
+                key={editorVersion}
+                value={description}
+                onChange={setDescription}
+                placeholder={t(
+                  "common:modals.createTask.descriptionPlaceholder",
+                )}
+                projectId={resolvedProjectId || undefined}
+                uploadAsset={stageAsset}
+              />
             </div>
 
             {labels.length > 0 && (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap mb-2">
                 {labels.map((label) => (
                   <Badge
                     key={label.name}
-                    badgeColor={label.color}
+                    color={label.color}
                     variant="outline"
-                    className="flex items-center gap-1 pl-3 cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800/50 transition-colors"
+                    className="flex items-center gap-1 pl-3 cursor-pointer hover:bg-accent/50 transition-colors"
                     onClick={() => removeLabel(label.name)}
                   >
                     <span
                       className="inline-block w-2 h-2 mr-1.5 rounded-full"
                       style={{
-                        backgroundColor:
-                          labelColors.find((c) => c.value === label.color)
-                            ?.color || "#94a3b8",
+                        backgroundColor: resolveLabelColor(label.color),
                       }}
                     />
-                    {label.name}
+                    <span className="max-w-20 truncate">{label.name}</span>
                   </Badge>
                 ))}
               </div>
             )}
 
             <div className="flex flex-wrap items-center gap-2 py-2">
-              <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-amber-100 to-yellow-100 dark:from-amber-500/20 dark:to-yellow-500/20 text-amber-800 dark:text-amber-300 rounded-md text-xs font-medium border border-amber-300 dark:border-amber-500/30">
-                <div className="w-1.5 h-1.5 bg-gradient-to-r from-amber-500 to-yellow-500 dark:from-amber-400 dark:to-yellow-400 rounded-full shadow-sm" />
-                {status
-                  ? status.charAt(0).toUpperCase() +
-                    status.slice(1).replace("-", " ")
-                  : "In Progress"}
+              {!explicitProjectId && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={cn(
+                        "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors border border-border hover:bg-accent/50",
+                        resolvedProjectId
+                          ? "bg-accent/30 text-foreground"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      <FolderKanban className="w-3.5 h-3.5" />
+                      <span>
+                        {resolvedProject?.name ||
+                          t("common:modals.createTask.selectProject")}
+                      </span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-48 p-1" align="start">
+                    <div className="space-y-1">
+                      {workspaceProjects?.map((workspaceProject) => (
+                        <button
+                          key={workspaceProject.id}
+                          type="button"
+                          className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent/50 text-left transition-colors h-8"
+                          disabled={
+                            isPreparingDraft ||
+                            stagedAssetsRef.current.length > 0 ||
+                            isSubmitting
+                          }
+                          onClick={() => {
+                            if (
+                              pendingUploadsRef.current === 0 &&
+                              stagedAssetsRef.current.length === 0 &&
+                              !submittingRef.current
+                            ) {
+                              setSelectedProjectId(workspaceProject.id);
+                            }
+                          }}
+                        >
+                          <span className="text-sm truncate">
+                            {workspaceProject.name}
+                          </span>
+                          {resolvedProjectId === workspaceProject.id && (
+                            <Check className="ml-auto h-4 w-4 shrink-0" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-accent/50 text-foreground rounded-md text-xs font-medium border border-border">
+                {getColumnIcon(
+                  taskStatus,
+                  initialColumn?.isFinal,
+                  initialColumn?.icon,
+                )}
+                {statusLabel}
               </div>
+
+              <Popover open={startDateOpen} onOpenChange={setStartDateOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors border border-border hover:bg-accent/50",
+                      startDate
+                        ? "bg-accent/30 text-foreground"
+                        : "text-muted-foreground",
+                    )}
+                  >
+                    <CalendarIcon className="w-3.5 h-3.5" />
+                    <span>
+                      {startDate
+                        ? formatDateMedium(startDate)
+                        : t("common:modals.createTask.startDate")}
+                    </span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-65 p-0" align="start">
+                  <DatePickerMenu
+                    label={t("common:modals.createTask.startDate")}
+                    placeholder={t("tasks:datePicker.startDatePlaceholder")}
+                    clearLabel={t("common:modals.createTask.clearStartDate")}
+                    value={startDate ?? null}
+                    onChange={(date) => {
+                      setStartDate(date ?? undefined);
+                      setStartDateOpen(false);
+                    }}
+                    bounds={dueDate ? { after: dueDate } : undefined}
+                    formatLimit={(date) => t("tasks:due.fullDate", { date })}
+                  />
+                </PopoverContent>
+              </Popover>
 
               <Popover>
                 <PopoverTrigger asChild>
                   <button
                     type="button"
                     className={cn(
-                      "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all duration-200 hover:scale-105 border",
-                      selectedPriority && priority !== "low"
-                        ? `${selectedPriority.color} ${selectedPriority.bg} ${selectedPriority.border}`
-                        : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/50 border-zinc-300 dark:border-zinc-700/50",
+                      "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors border border-border hover:bg-accent/50",
+                      priority !== "no-priority"
+                        ? "bg-accent/30 text-foreground"
+                        : "text-muted-foreground",
                     )}
                   >
-                    <Target className="w-3.5 h-3.5" />
+                    {getPriorityIcon(priority)}
                     <span>
-                      {selectedPriority ? selectedPriority.label : "Priority"}
+                      {selectedPriority
+                        ? selectedPriority.label
+                        : t("common:modals.createTask.priority")}
                     </span>
                   </button>
                 </PopoverTrigger>
-                <PopoverContent className="w-48 p-2" align="start">
+                <PopoverContent className="w-48 p-1" align="start">
                   <div className="space-y-1">
                     {priorityOptions.map((option) => (
                       <button
                         key={option.value}
                         type="button"
-                        className={cn(
-                          "w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-all duration-200 hover:scale-[1.02]",
-                          option.color,
-                          option.bg,
-                          `hover:${option.bg}`,
-                        )}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent/50 text-left transition-colors h-8"
                         onClick={() => setPriority(option.value as Priority)}
                       >
-                        <Flag className={cn("w-3.5 h-3.5", option.color)} />
-                        {option.label}
+                        {getPriorityIcon(option.value)}
+                        <span className="text-sm">{option.label}</span>
+                        {priority === option.value && (
+                          <Check className="ml-auto h-4 w-4" />
+                        )}
                       </button>
                     ))}
                   </div>
@@ -407,93 +965,115 @@ function CreateTaskModal({ open, onClose, status }: CreateTaskModalProps) {
                   <button
                     type="button"
                     className={cn(
-                      "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all duration-200 hover:scale-105 border",
+                      "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors border border-border hover:bg-accent/50",
                       selectedUser
-                        ? "text-indigo-300 bg-indigo-500/10 border-indigo-500/30"
-                        : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/50 border-zinc-300 dark:border-zinc-700/50",
+                        ? "bg-accent/30 text-foreground"
+                        : "text-muted-foreground",
                     )}
                   >
                     {selectedUser ? (
                       <>
-                        <div className="w-4 h-4 bg-zinc-400 dark:bg-zinc-600 rounded-full flex items-center justify-center text-[10px] text-white font-bold">
-                          {selectedUser.userName?.charAt(0).toUpperCase() ||
-                            "?"}
-                        </div>
-                        <span>{selectedUser.userName}</span>
+                        <Avatar className="h-4 w-4">
+                          <AvatarImage
+                            src={selectedUser.image ?? ""}
+                            alt={selectedUser.name}
+                          />
+                          <AvatarFallback className="text-[10px] font-medium border border-border/30">
+                            {getInitials(selectedUser.name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span>{selectedUser.name}</span>
                       </>
                     ) : (
                       <>
                         <UserIcon className="w-3.5 h-3.5" />
-                        <span>Assign</span>
+                        <span>{t("common:modals.createTask.assign")}</span>
                       </>
                     )}
                   </button>
                 </PopoverTrigger>
-                <PopoverContent className="w-64 p-2" align="start">
+                <PopoverContent className="w-48 p-1" align="start">
                   <div className="space-y-1">
                     <button
                       type="button"
-                      className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800/50 text-zinc-900 dark:text-zinc-300 transition-all duration-200 hover:scale-[1.02]"
+                      className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent/50 text-left transition-colors h-8"
                       onClick={() => setAssigneeId("")}
                     >
-                      <UserIcon className="w-4 h-4 text-zinc-600 dark:text-zinc-500" />
-                      Unassigned
-                    </button>
-                    {users?.map((user) => (
-                      <button
-                        key={user.userId}
-                        type="button"
-                        className="w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800/50 text-zinc-900 dark:text-zinc-300 transition-all duration-200 hover:scale-[1.02]"
-                        onClick={() => setAssigneeId(user.userId || "")}
+                      <div
+                        className="w-6 h-6 rounded-full bg-muted border border-border flex items-center justify-center"
+                        title={t(
+                          "common:modals.createTask.assignUnassignedTitle",
+                        )}
                       >
-                        <div className="w-4 h-4 bg-zinc-400 dark:bg-zinc-600 rounded-full flex items-center justify-center text-[10px] text-white font-bold">
-                          {user.userName?.charAt(0).toUpperCase() || "?"}
-                        </div>
-                        {user.userName}
+                        <span className="text-[10px] font-medium text-muted-foreground">
+                          ?
+                        </span>
+                      </div>
+                      <span className="text-sm">
+                        {t("common:modals.createTask.assignUnassigned")}
+                      </span>
+                      {!selectedUser && <Check className="ml-auto h-4 w-4" />}
+                    </button>
+                    {assigneeOptions.map((member) => (
+                      <button
+                        key={member.id}
+                        type="button"
+                        className="w-full flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-accent/50 text-left transition-colors h-8"
+                        onClick={() => setAssigneeId(member.id)}
+                      >
+                        <Avatar className="h-6 w-6">
+                          <AvatarImage
+                            src={member.image ?? ""}
+                            alt={member.name}
+                          />
+                          <AvatarFallback className="text-xs font-medium border border-border/30">
+                            {getInitials(member.name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-sm">{member.name}</span>
+                        {selectedUser?.id === member.id && (
+                          <Check className="ml-auto h-4 w-4" />
+                        )}
                       </button>
                     ))}
                   </div>
                 </PopoverContent>
               </Popover>
 
-              <Popover>
+              <Popover open={dueDateOpen} onOpenChange={setDueDateOpen}>
                 <PopoverTrigger asChild>
                   <button
                     type="button"
                     className={cn(
-                      "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all duration-200 hover:scale-105 border",
+                      "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors border border-border hover:bg-accent/50",
                       dueDate
-                        ? "text-emerald-300 bg-emerald-500/10 border-emerald-500/30"
-                        : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/50 border-zinc-300 dark:border-zinc-700/50",
+                        ? "bg-accent/30 text-foreground"
+                        : "text-muted-foreground",
                     )}
                   >
                     <CalendarIcon className="w-3.5 h-3.5" />
                     <span>
-                      {dueDate ? format(dueDate, "MMM d, yyyy") : "Due date"}
+                      {dueDate
+                        ? formatDateMedium(dueDate)
+                        : t("common:modals.createTask.dueDate")}
                     </span>
                   </button>
                 </PopoverTrigger>
-                <PopoverContent className="w-auto p-3" align="start">
-                  <Calendar
-                    mode="single"
-                    selected={dueDate}
-                    onSelect={setDueDate}
-                    className="rounded-md border-0"
+                <PopoverContent className="w-65 p-0" align="start">
+                  <DatePickerMenu
+                    label={t("common:modals.createTask.dueDate")}
+                    placeholder={t("tasks:datePicker.dueDatePlaceholder")}
+                    clearLabel={t("common:modals.createTask.clearDueDate")}
+                    value={dueDate ?? null}
+                    onChange={(date) => {
+                      setDueDate(date ?? undefined);
+                      setDueDateOpen(false);
+                    }}
+                    bounds={startDate ? { before: startDate } : undefined}
+                    formatLimit={(date) =>
+                      t("tasks:datePicker.startsOn", { date })
+                    }
                   />
-                  {dueDate && (
-                    <div className="flex justify-between items-center pt-3 border-t border-zinc-200 dark:border-zinc-800/50 mt-3">
-                      <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                        {format(dueDate, "EEEE, MMMM d, yyyy")}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setDueDate(undefined)}
-                        className="text-xs text-zinc-600 dark:text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-300 transition-colors"
-                      >
-                        Clear
-                      </button>
-                    </div>
-                  )}
                 </PopoverContent>
               </Popover>
 
@@ -502,174 +1082,287 @@ function CreateTaskModal({ open, onClose, status }: CreateTaskModalProps) {
                   <button
                     type="button"
                     className={cn(
-                      "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-all duration-200 hover:scale-105 border",
+                      "flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors border border-border hover:bg-accent/50",
                       labels.length > 0
-                        ? "text-violet-300 bg-violet-500/10 border-violet-500/30"
-                        : "text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/50 border-zinc-300 dark:border-zinc-700/50",
+                        ? "bg-accent/30 text-foreground"
+                        : "text-muted-foreground",
                     )}
                   >
                     <Tag className="w-3.5 h-3.5" />
-                    <span>Labels</span>
+                    <span>{t("common:modals.createTask.labels")}</span>
                   </button>
                 </PopoverTrigger>
-                <PopoverContent
-                  className="w-80 p-0 overflow-hidden"
-                  align="start"
-                  sideOffset={5}
-                >
-                  <div className="flex items-center p-2 border-b border-zinc-200 dark:border-zinc-800">
-                    <Search className="w-4 h-4 text-zinc-500 dark:text-zinc-400 mr-2" />
-                    <input
-                      ref={searchInputRef}
-                      type="text"
-                      value={searchValue}
-                      onChange={(e) => setSearchValue(e.target.value)}
-                      onKeyDown={handleSearchKeyDown}
-                      placeholder="Change or add labels..."
-                      className="w-full bg-transparent border-none text-zinc-900 dark:text-zinc-200 text-sm focus:outline-none placeholder:text-zinc-500"
-                    />
-                  </div>
+                <PopoverContent className="p-0" align="start">
+                  {labelsStep === "select" && (
+                    <div className="w-auto">
+                      <div className="flex items-center gap-2 p-2 border-b border-border">
+                        <Search className="w-3 h-3 text-muted-foreground" />
+                        <input
+                          ref={searchInputRef}
+                          value={searchValue}
+                          onChange={(e) => setSearchValue(e.target.value)}
+                          placeholder={t(
+                            "common:modals.createTask.searchLabels",
+                          )}
+                          className="w-full bg-transparent border-none text-foreground text-base focus:outline-none placeholder:text-muted-foreground sm:text-xs"
+                        />
+                      </div>
 
-                  <div className="max-h-80 overflow-y-auto">
-                    {filteredLabels.length > 0 ? (
                       <div className="py-1">
-                        {filteredLabels.map((label: Label) => (
+                        {filteredLabels.length === 0 &&
+                          searchValue.length === 0 && (
+                            <span className="text-xs text-muted-foreground px-2">
+                              {t("common:modals.createTask.noLabelsFound")}
+                            </span>
+                          )}
+                        {filteredLabels.map((label) => (
                           <button
-                            key={label.name}
+                            key={label.id}
                             type="button"
-                            className="w-full flex items-center px-3 py-2 text-sm text-left text-zinc-900 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                            className="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-accent/50 text-left"
                             onClick={() => toggleLabel(label.name)}
                           >
-                            <div className="flex-shrink-0 w-4 mr-2 text-center">
-                              <Check className="w-4 h-4 text-zinc-400" />
+                            <div className="flex-shrink-0 w-3 flex justify-center">
+                              {labels.some((l) => l.name === label.name) && (
+                                <Check className="w-3 h-3" />
+                              )}
                             </div>
                             <span
-                              className="w-3 h-3 rounded-full mr-2"
+                              className="w-2 h-2 rounded-full flex-shrink-0"
+                              style={{
+                                backgroundColor: resolveLabelColor(label.color),
+                              }}
+                            />
+                            <span className="max-w-20 truncate">
+                              {label.name}
+                            </span>
+                          </button>
+                        ))}
+
+                        {canCreateLabelCapability &&
+                          isCreatingNewLabel &&
+                          filteredLabels.length > 0 && (
+                            <div className="border-t border-border my-1" />
+                          )}
+                        {canCreateLabelCapability && isCreatingNewLabel && (
+                          <button
+                            type="button"
+                            className="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-accent/50 text-left"
+                            onClick={handleCreateNewClick}
+                          >
+                            <div className="flex-shrink-0 w-3 flex justify-center">
+                              <Plus className="w-3 h-3" />
+                            </div>
+                            <span
+                              className="w-2 h-2 rounded-full flex-shrink-0"
                               style={{
                                 backgroundColor:
                                   labelColors.find(
-                                    (c) => c.value === label.color,
-                                  )?.color || "#94a3b8",
+                                    (c) => c.value === selectedColor,
+                                  )?.color || "var(--color-neutral-400)",
                               }}
                             />
-                            <span>{label.name}</span>
+                            <span className="truncate">
+                              {t("common:modals.createTask.createLabel", {
+                                name: searchValue,
+                              })}
+                            </span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {labelsStep === "color" && (
+                    <div className="w-auto">
+                      <div className="flex items-center justify-between p-2 border-b border-border">
+                        <span className="text-xs font-medium">
+                          {t("common:modals.createTask.chooseColor")}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setLabelsStep("select")}
+                          className="w-4 h-4 flex items-center justify-center hover:bg-accent/50 rounded"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+
+                      <div className="py-1">
+                        {labelColors.map((color) => (
+                          <button
+                            key={color.value}
+                            type="button"
+                            className={cn(
+                              "w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-accent/50 text-left",
+                              selectedColor === color.value && "bg-accent/30",
+                            )}
+                            onClick={() =>
+                              handleColorSelect(color.value as LabelColor)
+                            }
+                          >
+                            <span
+                              className="w-2 h-2 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: color.color }}
+                            />
+                            <span className="truncate">{color.label}</span>
+                            {selectedColor === color.value && (
+                              <Check className="w-3 h-3 ml-auto" />
+                            )}
                           </button>
                         ))}
                       </div>
-                    ) : null}
-
-                    {isCreatingNewLabel && (
-                      <div className="py-1 border-t border-zinc-200 dark:border-zinc-800">
-                        <button
-                          type="button"
-                          className="w-full flex items-center px-3 py-2 text-sm text-left text-zinc-900 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                          onClick={handleCreateLabel}
-                        >
-                          <div className="flex-shrink-0 w-4 mr-2 text-center">
-                            <PlusIcon className="w-4 h-4 text-zinc-400" />
-                          </div>
-                          <span
-                            className="w-3 h-3 rounded-full mr-2"
-                            style={{
-                              backgroundColor:
-                                labelColors.find(
-                                  (c) => c.value === selectedColor,
-                                )?.color || "#94a3b8",
-                            }}
-                          />
-                          <span>Create new label: "{searchValue}"</span>
-                        </button>
-
-                        <Popover
-                          open={colorPickerOpen}
-                          onOpenChange={setColorPickerOpen}
-                        >
-                          <PopoverTrigger asChild>
-                            <button
-                              type="button"
-                              className="w-full flex items-center px-3 py-2 text-sm text-left text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                            >
-                              <div className="flex-shrink-0 w-4 mr-2" />
-                              <span>Pick a color for label</span>
-                            </button>
-                          </PopoverTrigger>
-                          <PopoverContent
-                            className="w-64 p-2"
-                            align="start"
-                            sideOffset={5}
-                          >
-                            <div className="grid grid-cols-1 gap-1">
-                              {labelColors.map((color) => (
-                                <button
-                                  key={color.value}
-                                  type="button"
-                                  className={cn(
-                                    "flex items-center px-3 py-2 text-sm text-left text-zinc-900 dark:text-zinc-200 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800",
-                                    selectedColor === color.value &&
-                                      "bg-zinc-100 dark:bg-zinc-800",
-                                  )}
-                                  onClick={() => {
-                                    setSelectedColor(color.value);
-                                    setColorPickerOpen(false);
-                                  }}
-                                >
-                                  <span
-                                    className="w-3 h-3 rounded-full mr-3"
-                                    style={{
-                                      backgroundColor: color.color,
-                                    }}
-                                  />
-                                  <span>{color.label}</span>
-                                  {selectedColor === color.value && (
-                                    <Check className="w-4 h-4 ml-auto text-zinc-400" />
-                                  )}
-                                </button>
-                              ))}
-                            </div>
-                          </PopoverContent>
-                        </Popover>
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </PopoverContent>
               </Popover>
+              {customFields.length > 0 && (
+                <div className="flex w-full flex-wrap items-center gap-2">
+                  {customFields.map((field) => (
+                    <CustomFieldChip
+                      key={field.id}
+                      field={field}
+                      value={customFieldValues[field.id] ?? ""}
+                      onChange={(value) =>
+                        handleCustomFieldChange(field.id, value)
+                      }
+                      invalid={
+                        showMissingRequired &&
+                        missingRequired.some(({ id }) => id === field.id)
+                      }
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
-          <DialogFooter>
+          {awaitingColumns && columnsError && (
+            <div
+              role="alert"
+              className="flex items-center gap-2 px-6 py-2 text-sm text-muted-foreground"
+            >
+              {t("common:modals.createTask.statusLoadError")}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => void refetchColumns()}
+              >
+                {t("common:error.tryAgain")}
+              </Button>
+            </div>
+          )}
+          <DialogFooter className="flex-shrink-0 border-t border-border bg-background px-6 py-4">
             <div className="flex items-center gap-3 mr-auto">
-              <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400 cursor-pointer hover:text-zinc-900 dark:hover:text-zinc-300 transition-colors">
+              <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
                 <input
                   type="checkbox"
                   checked={createMore}
                   onChange={(e) => setCreateMore(e.target.checked)}
-                  className="rounded border-zinc-400 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-0 focus:ring-2 transition-all"
+                  className="rounded border-border bg-background text-primary focus:ring-ring focus:ring-offset-0 focus:ring-2 transition-[border-color,box-shadow]"
                 />
-                Create more
+                {t("common:modals.createTask.createMore")}
               </label>
             </div>
 
+            {showMissingRequired && missingRequired.length > 0 && (
+              <p
+                role="alert"
+                className="flex items-center gap-1.5 text-destructive-foreground text-xs"
+              >
+                <CircleAlert aria-hidden="true" className="size-3.5" />
+                {t("tasks:customFields.missingRequired", {
+                  count: missingRequired.length,
+                })}
+              </p>
+            )}
             <Button
               type="button"
-              onClick={handleClose}
+              onClick={() => handleOpenChange(false)}
               variant="outline"
               size="sm"
-              className="border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              className="border-border text-foreground hover:bg-accent"
             >
-              Cancel
+              {t("common:actions.cancel")}
             </Button>
             <Button
               type="submit"
-              disabled={!title.trim()}
+              disabled={
+                !title.trim() ||
+                !resolvedProjectId ||
+                assigneeUnconfirmed ||
+                isSubmitting ||
+                awaitingColumns ||
+                isPreparingDraft
+              }
+              aria-busy={isPreparingDraft || isSubmitting}
               size="sm"
-              className="bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50"
+              className="disabled:opacity-50"
             >
-              Create Task
+              {isPreparingDraft
+                ? t("activity:comment.editor.uploadingFile")
+                : t("common:modals.createTask.createButton")}
             </Button>
           </DialogFooter>
         </form>
       </DialogContent>
+
+      <AlertDialog
+        open={discardConfirmationOpen}
+        onOpenChange={setDiscardConfirmationOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("common:modals.createTask.discardTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("common:modals.createTask.discardDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose
+              render={<Button type="button" variant="outline" size="sm" />}
+            >
+              {t("common:actions.cancel")}
+            </AlertDialogClose>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={closeAndReset}
+            >
+              {t("common:modals.createTask.discardButton")}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
+  );
+}
+
+function CreateTaskModal(props: CreateTaskModalProps) {
+  const { data: workspace } = useActiveWorkspace();
+  const location = useLocation();
+  const routeWorkspaceId = useParams({
+    strict: false,
+    select: (params) =>
+      "workspaceId" in params && typeof params.workspaceId === "string"
+        ? params.workspaceId
+        : undefined,
+  });
+  // useActiveWorkspace may temporarily fall back to the previous organization
+  // while the new route's organization list is loading.
+  if (!props.open || (routeWorkspaceId && routeWorkspaceId !== workspace?.id))
+    return null;
+
+  // Closing or navigating ends the whole editing session, including pending
+  // upload drafts, instead of carrying confidential fields into a new context.
+  return (
+    <CreateTaskModalContent
+      key={JSON.stringify([workspace?.id, location.pathname, props.projectId])}
+      {...props}
+    />
   );
 }
 

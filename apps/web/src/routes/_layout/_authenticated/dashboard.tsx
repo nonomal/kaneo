@@ -1,21 +1,25 @@
+import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import PageTitle from "@/components/page-title";
-import { SidebarProvider } from "@/components/ui/sidebar";
-import useWorkspaceStore from "@/store/workspace";
-import { Outlet, createFileRoute } from "@tanstack/react-router";
+import useActiveWorkspace from "@/hooks/queries/workspace/use-active-workspace";
+import { usePendingCheckout } from "@/hooks/use-pending-checkout";
 
 export const Route = createFileRoute("/_layout/_authenticated/dashboard")({
   component: DashboardLayoutComponent,
 });
 
 function DashboardLayoutComponent() {
-  const { workspace } = useWorkspaceStore();
+  const { t } = useTranslation();
+  const { data: workspace } = useActiveWorkspace();
+  usePendingCheckout();
 
   return (
     <>
-      <SidebarProvider>
-        <PageTitle title="Dashboard" hideAppName={!workspace?.name} />
-        <Outlet />
-      </SidebarProvider>
+      <PageTitle
+        title={t("navigation:page.projectsTitle")}
+        hideAppName={!workspace?.name}
+      />
+      <Outlet />
     </>
   );
 }

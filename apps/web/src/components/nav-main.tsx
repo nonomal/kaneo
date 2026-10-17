@@ -1,197 +1,117 @@
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
-  BarChart3,
-  Calendar,
-  ChevronDown,
-  Clock,
-  LayoutDashboard,
-  LayoutGrid,
-  Search,
+  CircleCheck,
+  House,
+  Inbox,
+  type LucideIcon,
+  Mail,
   Users,
 } from "lucide-react";
-
+import { useTranslation } from "react-i18next";
 import {
   SidebarGroup,
-  SidebarGroupLabel,
+  SidebarGroupContent,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
+import { usePendingInvitations } from "@/hooks/queries/invitation/use-pending-invitations";
+import useGetNotifications from "@/hooks/queries/notification/use-get-notifications";
+import useGetAssignedTasks from "@/hooks/queries/task/use-get-assigned-tasks";
+import useActiveWorkspace from "@/hooks/queries/workspace/use-active-workspace";
 import { cn } from "@/lib/cn";
-import useWorkspaceStore from "@/store/workspace";
-import { useState } from "react";
-import SearchCommandMenu from "./search-command-menu";
-import { SettingsMenu } from "./settings-menu";
-import { Button } from "./ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "./ui/dropdown-menu";
+
+type NavItem = {
+  title: string;
+  icon: LucideIcon;
+  url: string;
+  count?: number;
+  emphasizeCount?: boolean;
+};
 
 export function NavMain() {
-  const { workspace } = useWorkspaceStore();
+  const { t } = useTranslation();
+  const { data: workspace } = useActiveWorkspace();
   const navigate = useNavigate();
-  const [open, setOpen] = useState(false);
-  const { workspaceId: currentWorkspaceId, projectId: currentProjectId } =
-    useParams({
-      strict: false,
-    });
+  const pathname = useLocation({
+    select: (location) => location.pathname.replace(/\/+$/, ""),
+  });
+  const { data: invitations = [] } = usePendingInvitations();
+  const { data: notifications = [] } = useGetNotifications(workspace?.id);
+  const { data: assignedTasks } = useGetAssignedTasks(workspace?.id, true);
 
   if (!workspace) return null;
 
-  const isInProject = currentProjectId && currentWorkspaceId === workspace.id;
-  const currentPath = window.location.pathname;
-  const isBoard = currentPath.includes("/board");
-  const isBacklog = currentPath.includes("/backlog");
+  const homeUrl = `/dashboard/workspace/${workspace.id}`;
+  const unreadCount = notifications.filter(
+    (notification) => !notification.isRead,
+  ).length;
 
-  const navItems = [
+  const navItems: NavItem[] = [
+    { title: t("navigation:sidebar.home"), icon: House, url: homeUrl },
     {
-      title: "Projects",
-      url: `/dashboard/workspace/${workspace.id}`,
-      icon: LayoutDashboard,
-      isActive:
-        window.location.pathname === `/dashboard/workspace/${workspace.id}`,
-      isDisabled: false,
+      title: t("navigation:sidebar.inbox"),
+      icon: Inbox,
+      url: `${homeUrl}/inbox`,
+      count: unreadCount,
+      emphasizeCount: true,
     },
     {
-      title: "Search",
-      onClick: () => {
-        setOpen(true);
-      },
-      icon: Search,
-      isActive: false,
-      isDisabled: false,
+      title: t("navigation:sidebar.myTasks"),
+      icon: CircleCheck,
+      url: `${homeUrl}/my-tasks`,
+      count: assignedTasks?.total,
     },
     {
-      title: "Time Tracking",
-      url: `/dashboard/workspace/${workspace.id}/time`,
-      icon: Clock,
-      isActive:
-        window.location.pathname ===
-        `/dashboard/workspace/${workspace.id}/time`,
-      isDisabled: true,
-    },
-    {
-      title: "Analytics",
-      url: `/dashboard/workspace/${workspace.id}/analytics`,
-      icon: BarChart3,
-      isActive:
-        window.location.pathname ===
-        `/dashboard/workspace/${workspace.id}/analytics`,
-      isDisabled: true,
-    },
-    {
-      title: "Members",
-      url: `/dashboard/workspace/${workspace.id}/members`,
+      title: t("navigation:sidebar.members"),
       icon: Users,
-      isActive:
-        window.location.pathname ===
-        `/dashboard/workspace/${workspace.id}/members`,
-      isDisabled: false,
+      url: `${homeUrl}/members`,
     },
   ];
 
-  const handleNavClick = (url: string) => {
-    navigate({ to: url });
-  };
-
-  const handleViewChange = (view: "board" | "backlog") => {
-    if (!currentProjectId) return;
-    navigate({
-      to: `/dashboard/workspace/$workspaceId/project/$projectId/${view}`,
-      params: {
-        workspaceId: workspace.id,
-        projectId: currentProjectId,
-      },
+  // Invitations to other workspaces only matter while one is waiting.
+  if (invitations.length > 0) {
+    navItems.push({
+      title: t("navigation:sidebar.invitations"),
+      icon: Mail,
+      url: "/dashboard/invitations",
+      count: invitations.length,
+      emphasizeCount: true,
     });
-  };
+  }
 
   return (
-    <>
-      <SidebarGroup>
-        <SidebarGroupLabel>Main</SidebarGroupLabel>
-        <SidebarMenu>
+    <SidebarGroup className="gap-1 p-2">
+      <SidebarGroupContent>
+        <SidebarMenu className="gap-0.5">
           {navItems.map((item) => (
-            <SidebarMenuItem key={item.title}>
+            <SidebarMenuItem key={item.url}>
               <SidebarMenuButton
-                asChild
                 tooltip={item.title}
-                disabled={item.isDisabled}
-                className="w-full flex gap-2 justify-start items-start"
+                isActive={pathname === item.url}
+                size="default"
+                className="h-8 text-sm"
+                onClick={() => navigate({ to: item.url })}
               >
-                <Button
-                  onClick={() => {
-                    if (item.url) {
-                      handleNavClick(item.url);
-                    } else {
-                      item.onClick?.();
-                    }
-                  }}
-                  variant="ghost"
-                  className={cn("w-full", item.isActive && "bg-accent")}
-                >
-                  {item.icon && <item.icon className="w-4 h-4" />}
-                  <span>{item.title}</span>
-                </Button>
+                <item.icon aria-hidden="true" />
+                <span>{item.title}</span>
+                {item.count ? (
+                  <span
+                    className={cn(
+                      "ml-auto flex h-4.5 min-w-4.5 shrink-0 items-center justify-center rounded-full px-1 text-[11px] tabular-nums",
+                      item.emphasizeCount
+                        ? "bg-foreground font-semibold text-background"
+                        : "font-medium text-muted-foreground",
+                    )}
+                  >
+                    {item.count > 99 ? "99+" : item.count}
+                  </span>
+                ) : null}
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
-
-          {isInProject && (
-            <SidebarMenuItem>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    className={cn(
-                      "w-full flex items-center gap-2 justify-between",
-                    )}
-                  >
-                    <div className="flex items-center gap-2">
-                      {isBoard ? (
-                        <LayoutGrid className="w-4 h-4" />
-                      ) : (
-                        <Calendar className="w-4 h-4" />
-                      )}
-                      <span>View</span>
-                    </div>
-                    <ChevronDown className="w-3 h-3 opacity-50" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-48">
-                  <DropdownMenuItem
-                    onClick={() => handleViewChange("board")}
-                    className={cn("cursor-pointer", isBoard && "bg-accent")}
-                  >
-                    <LayoutGrid className="w-4 h-4 mr-2" />
-                    Active Board
-                    {isBoard && (
-                      <div className="ml-auto w-2 h-2 bg-primary rounded-full" />
-                    )}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => handleViewChange("backlog")}
-                    className={cn("cursor-pointer", isBacklog && "bg-accent")}
-                  >
-                    <Calendar className="w-4 h-4 mr-2" />
-                    Backlog
-                    {isBacklog && (
-                      <div className="ml-auto w-2 h-2 bg-primary rounded-full" />
-                    )}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </SidebarMenuItem>
-          )}
-
-          <SidebarMenuItem>
-            <SettingsMenu />
-          </SidebarMenuItem>
         </SidebarMenu>
-      </SidebarGroup>
-      <SearchCommandMenu open={open} setOpen={setOpen} />
-    </>
+      </SidebarGroupContent>
+    </SidebarGroup>
   );
 }

@@ -1,24 +1,23 @@
-import WorkspaceLayout from "@/components/common/workspace-layout";
-import CreateProjectModal from "@/components/shared/modals/create-project-modal";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import icons from "@/constants/project-icons";
-import { shortcuts } from "@/constants/shortcuts";
-import useGetProjects from "@/hooks/queries/project/use-get-projects";
-import { useRegisterShortcuts } from "@/hooks/use-keyboard-shortcuts";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { LayoutGrid, Plus } from "lucide-react";
+import { createFileRoute } from "@tanstack/react-router";
+import { Plus } from "lucide-react";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { TrialExpiredCallout } from "@/components/billing/trial-expired-callout";
+import WorkspaceLayout from "@/components/common/workspace-layout";
+import { ActivityFeed } from "@/components/home/activity-feed";
+import { getDayPart } from "@/components/home/day-part";
+import { HomeProjects } from "@/components/home/home-projects";
+import { UpNext } from "@/components/home/up-next";
+import { WeekStrip } from "@/components/home/week-strip";
+import PageTitle from "@/components/page-title";
+import CreateProjectModal from "@/components/shared/modals/create-project-modal";
+import CreateTaskModal from "@/components/shared/modals/create-task-modal";
+import { Button } from "@/components/ui/button";
+import useGetProjects from "@/hooks/queries/project/use-get-projects";
+import useGetAssignedTasks from "@/hooks/queries/task/use-get-assigned-tasks";
+import { useLocalDay } from "@/hooks/use-local-day";
+import { useWorkspacePermission } from "@/hooks/use-workspace-permission";
+import { formatDate } from "@/lib/format";
 
 export const Route = createFileRoute(
   "/_layout/_authenticated/dashboard/workspace/$workspaceId/",
@@ -27,237 +26,102 @@ export const Route = createFileRoute(
 });
 
 function RouteComponent() {
-  const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
+  const { t } = useTranslation();
+  const day = useLocalDay();
   const { workspaceId } = Route.useParams();
-  const navigate = useNavigate();
-  const { data: projects, isLoading } = useGetProjects({
-    workspaceId,
-  });
+  const {
+    data: assigned,
+    isLoading,
+    isError,
+  } = useGetAssignedTasks(workspaceId);
+  const { data: projects } = useGetProjects({ workspaceId }, true);
+  const { canCreateTasks, canCreateProjects } = useWorkspacePermission();
+  const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
+  const [isCreateProjectOpen, setIsCreateProjectOpen] = useState(false);
+  const needsProjectFirst = projects?.length === 0 && canCreateProjects();
+  const openCreateProject = canCreateProjects()
+    ? () => setIsCreateProjectOpen(true)
+    : undefined;
 
-  const handleCreateProject = () => {
-    setIsCreateProjectOpen(true);
+  const greetings = {
+    morning: t("workspace:home.greeting.morning"),
+    afternoon: t("workspace:home.greeting.afternoon"),
+    evening: t("workspace:home.greeting.evening"),
   };
-
-  useRegisterShortcuts({
-    sequentialShortcuts: {
-      [shortcuts.project.prefix]: {
-        [shortcuts.project.create]: handleCreateProject,
-      },
-    },
-  });
-
-  const handleProjectClick = (projectId: string) => {
-    navigate({
-      to: "/dashboard/workspace/$workspaceId/project/$projectId/board",
-      params: { workspaceId, projectId },
-    });
-  };
-
-  if (isLoading) {
-    return (
-      <WorkspaceLayout
-        title="Projects"
-        headerActions={
-          <Button
-            variant="outline"
-            size="xs"
-            onClick={handleCreateProject}
-            className="gap-1"
-          >
-            <Plus className="w-3 h-3" />
-            Create project
-          </Button>
-        }
-      >
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="text-foreground font-medium">
-                Title
-              </TableHead>
-              <TableHead className="text-foreground font-medium">
-                Progress
-              </TableHead>
-              <TableHead className="text-foreground font-medium">
-                Target date
-              </TableHead>
-              <TableHead className="text-foreground font-medium">
-                Status
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {[1, 2, 3].map((i) => (
-              <TableRow key={i}>
-                <TableCell className="py-3">
-                  <div className="flex items-center gap-3">
-                    <Skeleton className="h-5 w-5" />
-                    <Skeleton className="h-4 w-24" />
-                  </div>
-                </TableCell>
-                <TableCell className="py-3">
-                  <Skeleton className="h-2 w-20" />
-                </TableCell>
-                <TableCell className="py-3">
-                  <Skeleton className="h-4 w-20" />
-                </TableCell>
-                <TableCell className="py-3">
-                  <Skeleton className="h-5 w-16" />
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </WorkspaceLayout>
-    );
-  }
-
-  if (!projects || projects.length === 0) {
-    return (
-      <>
-        <WorkspaceLayout
-          title="Projects"
-          headerActions={
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={handleCreateProject}
-              className="gap-1"
-            >
-              <Plus className="w-3 h-3" />
-              Create project
-            </Button>
-          }
-        >
-          <div className="flex items-center justify-center min-h-[60vh]">
-            <div className="text-center space-y-6">
-              <div className="w-16 h-16 mx-auto rounded-xl bg-muted flex items-center justify-center">
-                <LayoutGrid className="w-8 h-8 text-muted-foreground" />
-              </div>
-              <div className="space-y-2">
-                <h3 className="text-xl font-semibold">No projects yet</h3>
-                <p className="text-muted-foreground">
-                  Get started by creating your first project.
-                </p>
-              </div>
-              <Button onClick={handleCreateProject} className="gap-2">
-                <Plus className="w-4 h-4" />
-                Create project
-              </Button>
-            </div>
-          </div>
-        </WorkspaceLayout>
-
-        <CreateProjectModal
-          open={isCreateProjectOpen}
-          onClose={() => setIsCreateProjectOpen(false)}
-        />
-      </>
-    );
-  }
 
   return (
     <>
-      <WorkspaceLayout
-        title="Projects"
-        headerActions={
-          <Button
-            variant="outline"
-            size="xs"
-            onClick={handleCreateProject}
-            className="gap-1"
-          >
-            <Plus className="w-3 h-3" />
-            Create project
-          </Button>
-        }
-      >
-        <Table>
-          <TableHeader className="p-4">
-            <TableRow>
-              <TableHead className="text-foreground font-medium">
-                Title
-              </TableHead>
-              <TableHead className="text-foreground font-medium">
-                Progress
-              </TableHead>
-              <TableHead className="text-foreground font-medium">
-                Due date
-              </TableHead>
-              <TableHead className="text-foreground font-medium">
-                Status
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {projects?.map((project) => {
-              if (!project || !project.id || !project.statistics) return null;
-
-              const IconComponent =
-                icons[project.icon as keyof typeof icons] || icons.Layout;
-
-              const getStatusText = () => {
-                if (project.statistics.totalTasks === 0) return "Not started";
-                if (project.statistics.completionPercentage === 100)
-                  return "Complete";
-                return "In progress";
-              };
-
-              const getStatusVariant = () => {
-                if (project.statistics.totalTasks === 0) return "secondary";
-                if (project.statistics.completionPercentage === 100)
-                  return "default";
-                return "outline";
-              };
-
-              return (
-                <TableRow
-                  key={project.id}
-                  className="cursor-pointer"
-                  onClick={() => handleProjectClick(project.id)}
+      <PageTitle title={t("workspace:home.pageTitle")} />
+      <WorkspaceLayout title={t("workspace:home.pageTitle")}>
+        <div className="h-full overflow-y-auto">
+          <TrialExpiredCallout workspaceId={workspaceId} className="m-4" />
+          <div className="mx-auto flex w-full max-w-5xl flex-col gap-9 px-4 py-6 sm:px-6 sm:py-10 lg:px-10">
+            <header className="flex items-end justify-between gap-4">
+              <div className="flex flex-col gap-1.5">
+                <p className="font-medium text-[13px] text-muted-foreground">
+                  {formatDate(new Date(day), {
+                    weekday: "long",
+                    month: "long",
+                    day: "numeric",
+                  })}
+                </p>
+                <h1 className="font-semibold text-3xl text-foreground tracking-tight">
+                  {greetings[getDayPart()]}
+                </h1>
+              </div>
+              {canCreateTasks() && (
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    needsProjectFirst
+                      ? setIsCreateProjectOpen(true)
+                      : setIsCreateTaskOpen(true)
+                  }
                 >
-                  <TableCell className="py-3">
-                    <div className="flex items-center gap-3">
-                      <IconComponent className="w-5 h-5 text-muted-foreground" />
-                      <span className="font-medium">{project.name}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="py-3">
-                    <div className="flex items-center gap-2">
-                      <Progress
-                        value={project.statistics.completionPercentage}
-                        className="w-16 h-2"
-                      />
-                      <span className="text-sm text-muted-foreground">
-                        {project.statistics.completionPercentage}%
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="py-3">
-                    <span className="text-sm text-muted-foreground">
-                      {project.statistics.dueDate
-                        ? new Date(
-                            project.statistics.dueDate,
-                          ).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })
-                        : "No due date"}
-                    </span>
-                  </TableCell>
-                  <TableCell className="py-3">
-                    <Badge variant={getStatusVariant()}>
-                      {getStatusText()}
-                    </Badge>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+                  <Plus />
+                  {t("workspace:home.newTask")}
+                </Button>
+              )}
+            </header>
+
+            <WeekStrip
+              tasks={assigned?.tasks ?? []}
+              workspaceId={workspaceId}
+            />
+
+            {assigned && assigned.total > assigned.tasks.length && (
+              <p className="text-muted-foreground text-xs">
+                {t("workspace:home.week.truncated", {
+                  shown: assigned.tasks.length,
+                  total: assigned.total,
+                })}
+              </p>
+            )}
+
+            <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_20rem]">
+              <div className="flex min-w-0 flex-col gap-9">
+                <UpNext
+                  tasks={assigned?.tasks}
+                  total={assigned?.total ?? 0}
+                  isLoading={isLoading}
+                  isError={isError}
+                  workspaceId={workspaceId}
+                />
+                <HomeProjects
+                  workspaceId={workspaceId}
+                  onCreateProject={openCreateProject}
+                />
+              </div>
+              <ActivityFeed workspaceId={workspaceId} />
+            </div>
+          </div>
+        </div>
       </WorkspaceLayout>
 
+      <CreateTaskModal
+        open={isCreateTaskOpen}
+        onClose={() => setIsCreateTaskOpen(false)}
+      />
       <CreateProjectModal
         open={isCreateProjectOpen}
         onClose={() => setIsCreateProjectOpen(false)}

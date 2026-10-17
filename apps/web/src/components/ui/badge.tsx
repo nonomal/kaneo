@@ -1,71 +1,59 @@
+"use client";
+
+import { mergeProps } from "@base-ui/react/merge-props";
+import { useRender } from "@base-ui/react/use-render";
+import { cva, type VariantProps } from "class-variance-authority";
+
 import { cn } from "@/lib/cn";
-import { type VariantProps, cva } from "class-variance-authority";
-import type * as React from "react";
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  "relative inline-flex shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-sm border border-transparent font-medium outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64 [&_svg:not([class*='opacity-'])]:opacity-80 [&_svg:not([class*='size-'])]:size-3.5 sm:[&_svg:not([class*='size-'])]:size-3 [&_svg]:pointer-events-none [&_svg]:shrink-0 [button&,a&]:cursor-pointer [button&,a&]:pointer-coarse:after:absolute [button&,a&]:pointer-coarse:after:size-full [button&,a&]:pointer-coarse:after:min-h-11 [button&,a&]:pointer-coarse:after:min-w-11",
   {
-    variants: {
-      variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/80",
-        secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        outline:
-          "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
-      },
-      badgeColor: {
-        default: "",
-        red: "bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400 border-red-200 dark:border-red-800/30",
-        blue: "bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400 border-blue-200 dark:border-blue-800/30",
-        green:
-          "bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400 border-green-200 dark:border-green-800/30",
-        yellow:
-          "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800/30",
-        purple:
-          "bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400 border-purple-200 dark:border-purple-800/30",
-        pink: "bg-pink-100 text-pink-800 dark:bg-pink-900/20 dark:text-pink-400 border-pink-200 dark:border-pink-800/30",
-        indigo:
-          "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/20 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800/30",
-        orange:
-          "bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400 border-orange-200 dark:border-orange-800/30",
-        gray: "bg-gray-100 text-gray-800 dark:bg-gray-800/30 dark:text-gray-400 border-gray-200 dark:border-gray-700/30",
-        "dark-gray":
-          "bg-gray-200 text-gray-800 dark:bg-gray-700/30 dark:text-gray-300 border-gray-300 dark:border-gray-600/30",
-        teal: "bg-teal-100 text-teal-800 dark:bg-teal-900/20 dark:text-teal-400 border-teal-200 dark:border-teal-800/30",
-      },
-    },
     defaultVariants: {
+      size: "default",
       variant: "default",
-      badgeColor: "default",
+    },
+    variants: {
+      size: {
+        default:
+          "h-5.5 min-w-5.5 px-[calc(--spacing(1)-1px)] text-sm sm:h-4.5 sm:min-w-4.5 sm:text-xs",
+        lg: "h-6.5 min-w-6.5 px-[calc(--spacing(1.5)-1px)] text-base sm:h-5.5 sm:min-w-5.5 sm:text-sm",
+        sm: "h-5 min-w-5 rounded-[.25rem] px-[calc(--spacing(1)-1px)] text-xs sm:h-4 sm:min-w-4 sm:text-[.625rem]",
+      },
+      variant: {
+        default:
+          "bg-primary text-primary-foreground [button&,a&]:hover:bg-primary/90",
+        destructive: "bg-destructive  [button&,a&]:hover:bg-destructive/90",
+        error:
+          "bg-destructive/8 text-destructive-foreground dark:bg-destructive/16",
+        info: "bg-info/8 text-info-foreground dark:bg-info/16",
+        outline:
+          "border-input bg-background text-foreground dark:bg-input/32 [button&,a&]:hover:bg-accent/50 dark:[button&,a&]:hover:bg-input/48",
+        secondary:
+          "bg-secondary text-secondary-foreground [button&,a&]:hover:bg-secondary/90",
+        success: "bg-success/8 text-success-foreground dark:bg-success/16",
+        warning: "bg-warning/8 text-warning-foreground dark:bg-warning/16",
+      },
     },
   },
 );
 
-export interface BadgeProps
-  extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof badgeVariants> {
-  badgeColor?:
-    | "default"
-    | "red"
-    | "blue"
-    | "green"
-    | "yellow"
-    | "purple"
-    | "pink"
-    | "indigo"
-    | "orange"
-    | "gray"
-    | "dark-gray"
-    | "teal";
+interface BadgeProps extends useRender.ComponentProps<"span"> {
+  variant?: VariantProps<typeof badgeVariants>["variant"];
+  size?: VariantProps<typeof badgeVariants>["size"];
 }
 
-function Badge({ className, variant, badgeColor, ...props }: BadgeProps) {
-  return (
-    <div
-      className={cn(badgeVariants({ variant, badgeColor }), className)}
-      {...props}
-    />
-  );
+function Badge({ className, variant, size, render, ...props }: BadgeProps) {
+  const defaultProps = {
+    className: cn(badgeVariants({ className, size, variant })),
+    "data-slot": "badge",
+  };
+
+  return useRender({
+    defaultTagName: "span",
+    props: mergeProps<"span">(defaultProps, props),
+    render,
+  });
 }
 
 export { Badge, badgeVariants };

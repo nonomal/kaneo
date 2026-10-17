@@ -1,204 +1,73 @@
 <p align="center">
   <a href="https://kaneo.app">
-    <img src="https://assets.kaneo.app/logo-mono-rounded.png" alt="Kaneo's logo" width="200" />
+    <img src="https://assets.kaneo.app/logo-text.png" alt="Kaneo's logo" width="450" />
   </a>
 </p>
-
-<h1 align="center">Kaneo</h1>
 
 <div align="center">
 
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/usekaneo/kaneo/ci.yml?branch=main)](https://github.com/usekaneo/kaneo/actions)
+[![AI Policy: Human Voice](https://img.shields.io/badge/AI_Policy-Human_Voice-blue?logo=data:image%2Fsvg%2Bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgd2lkdGg9IjI0IiBoZWlnaHQ9IjI0Ij4KICA8c3R5bGU%2BCiAgICAuaWNvbiB7CiAgICAgIGZpbGw6IG5vbmU7CiAgICAgIHN0cm9rZTogIzAwMDAwMDsKICAgICAgc3Ryb2tlLXdpZHRoOiAyLjI1OwogICAgICBzdHJva2UtbGluZWNhcDogcm91bmQ7CiAgICAgIHN0cm9rZS1saW5lam9pbjogcm91bmQ7CiAgICB9CiAgICBAbWVkaWEgKHByZWZlcnMtY29sb3Itc2NoZW1lOiBkYXJrKSB7CiAgICAgIC5pY29uIHsgc3Ryb2tlOiAjZmZmZmZmOyB9CiAgICB9CiAgPC9zdHlsZT4KICA8cGF0aCBjbGFzcz0iaWNvbiIgZD0iTTE5LjQxNCAxNC40MTRDMjEgMTIuODI4IDIyIDExLjUgMjIgOS41YTUuNSA1LjUgMCAwIDAtOS41OTEtMy42NzYuNi42IDAgMCAxLS44MTguMDAxQTUuNSA1LjUgMCAwIDAgMiA5LjVjMCAyLjMgMS41IDQgMyA1LjVsNS41MzUgNS4zNjJhMiAyIDAgMCAwIDIuODc5LjA1MiAyLjEyIDIuMTIgMCAwIDAtLjAwNC0zIDIuMTI0IDIuMTI0IDAgMSAwIDMtMyAyLjEyNCAyLjEyNCAwIDAgMCAzLjAwNCAwIDIgMiAwIDAgMCAwLTIuODI4bC0xLjg4MS0xLjg4MmEyLjQxIDIuNDEgMCAwIDAtMy40MDkgMGwtMS43MSAxLjcxYTIgMiAwIDAgMS0yLjgyOCAwIDIgMiAwIDAgMSAwLTIuODI4bDIuODIzLTIuNzYyIi8%2BCjwvc3ZnPgo%3D)](https://github.com/usekaneo/kaneo/blob/main/AI_POLICY.md)
 [![Discord](https://img.shields.io/discord/1326250681530843178?color=7389D8&label=&logo=discord&logoColor=ffffff)](https://discord.gg/rU4tSyhXXU)
-
+[![Sponsors](https://img.shields.io/github/sponsors/andrejsshell)](https://github.com/sponsors/andrejsshell)
 </div>
 
 <div align="center">
   <h3>
-    <a href="https://kaneo.app/docs">Quick Start</a>
+    <a href="https://cloud.kaneo.app">Cloud</a>
+    <span> | </span>
+    <a href="https://kaneo.app/docs/core/installation">Installation</a>
     <span> | </span>
     <a href="https://kaneo.app">Website</a>
-    <span> | </span>
-    <a href="https://demo.kaneo.app">Demo</a>
     <span> | </span>
     <a href="https://discord.gg/rU4tSyhXXU">Discord</a>
   </h3>
 </div>
 
-<p align="center">A modern, self-hosted project management platform that gets out of your way.</p>
+<p align="center">
+  Fast, simple, open-source project management.
+</p>
 
-## Why Kaneo?
+<p align="center">
+  <img src="screenshots/readme@1x.png" srcset="screenshots/readme@1x.png 1x, screenshots/readme.png 2x" alt="Kaneo project board with the Kaneo logo and tagline" />
+</p>
 
-We built Kaneo because existing project management tools either feel bloated with features you'll never use, or they're too simple to handle real work. Kaneo finds the sweet spot—powerful enough for complex projects, simple enough that you'll actually want to use it.
+## Built for your team's work
 
-**What makes it different:**
-- **Clean interface** that focuses on your work, not the tool
-- **Self-hosted** so your data stays yours
-- **Actually fast** because we care about performance
-- **Open source** and free forever
+- **See work your way:** Board, List, Calendar, and Gantt views, plus a backlog, filters, and search.
+- **Keep task context together:** descriptions, attachments, subtasks, dependencies, labels, comments, and time tracking.
+- **Work with your team:** shared workspaces, invitations, custom roles, live updates, and public project views.
+- **Shape your workflow:** custom columns and fields, with rules that move tasks when repository activity changes.
+- **Stay informed:** in-app notifications, email, ntfy, Gotify, and personal webhooks.
+- **Connect other tools:** GitHub and Gitea, chat integrations, project webhooks, a [REST API](https://kaneo.app/docs/api-reference/introduction), a [command-line client](https://kaneo.app/docs/cli), and [MCP](https://kaneo.app/docs/core/integrations/mcp) for AI assistants.
 
-## Getting Started
+## Installation
 
-### Quick Start with Docker Compose
-
-The fastest way to try Kaneo is with Docker Compose. This sets up the API, web interface, and PostgreSQL database:
-
-```yaml
-services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: kaneo
-      POSTGRES_USER: kaneo_user
-      POSTGRES_PASSWORD: kaneo_password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
-
-  backend:
-    image: ghcr.io/usekaneo/api:latest
-    environment:
-      JWT_ACCESS: "your-secret-key-here"
-      DATABASE_URL: "postgresql://kaneo_user:kaneo_password@postgres:5432/kaneo"
-    ports:
-      - 1337:1337
-    depends_on:
-      - postgres
-    restart: unless-stopped
-
-  frontend:
-    image: ghcr.io/usekaneo/web:latest
-    environment:
-      KANEO_API_URL: "http://localhost:1337"
-    ports:
-      - 5173:5173
-    depends_on:
-      - backend
-    restart: unless-stopped
-
-volumes:
-  postgres_data:
-```
-
-Save this as `compose.yml`, run `docker compose up -d`, and open [http://localhost:5173](http://localhost:5173).
-
-> **Quick tip:** Change `JWT_ACCESS` to something secure in production. This is used to sign authentication tokens.
-
-### Development Setup
-
-For development, see our [Environment Setup Guide](ENVIRONMENT_SETUP.md) for detailed instructions on configuring environment variables and troubleshooting common issues like CORS problems.
-
-### Configuration Options
-
-| Variable | What it does | Default |
-| -------- | ------------ | ------- |
-| `KANEO_API_URL` | Where the web app finds the API | Required |
-| `JWT_ACCESS` | Secret key for user authentication | Required |
-| `DATABASE_URL` | PostgreSQL connection string | Required |
-| `DISABLE_REGISTRATION` | Block new user signups | `true` |
-
-### Database Setup
-
-Kaneo uses PostgreSQL for data storage. The Docker Compose setup above handles this automatically, but if you're running Kaneo outside of Docker, or if you are using an external postgres database, you'll need to:
-
-1. **Install PostgreSQL** (version 12 or higher)
-2. **Create a database and user:**
-   ```sql
-   CREATE DATABASE kaneo;
-   CREATE USER kaneo_user WITH PASSWORD 'your_password';
-   GRANT ALL PRIVILEGES ON DATABASE kaneo TO kaneo_user;
-
-   \c kaneo;
-   GRANT USAGE ON SCHEMA public TO kaneo_user;
-   GRANT CREATE ON SCHEMA public TO kaneo_user;
-   ALTER SCHEMA public OWNER TO kaneo_user;
-   ```
-3. **Set the DATABASE_URL environment variable:**
-   ```bash
-   export DATABASE_URL="postgresql://kaneo_user:your_password@localhost:5432/kaneo"
-   ```
-
-## Kubernetes Deployment
-
-If you're running Kubernetes, we have a Helm chart that handles the complexity:
-
-```bash
-# Clone the repo
-git clone https://github.com/usekaneo/kaneo.git
-cd kaneo
-
-# Install with Helm
-helm install kaneo ./charts/kaneo --namespace kaneo --create-namespace
-
-# Access locally
-kubectl port-forward svc/kaneo-web 5173:5173 -n kaneo
-```
-
-Open [http://localhost:5173](http://localhost:5173) and you're good to go.
-
-### Production Setup
-
-For real deployments, you'll want proper ingress:
-
-```bash
-helm install kaneo ./charts/kaneo \
-  --namespace kaneo \
-  --create-namespace \
-  --set ingress.enabled=true \
-  --set ingress.className=nginx \
-  --set "ingress.hosts[0].host=pm.yourcompany.com"
-```
-
-Check the [Helm chart docs](./charts/kaneo/README.md) for TLS setup, cert-manager integration, and other production considerations.
-
-## Development
-
-Want to hack on Kaneo? See our [Environment Setup Guide](ENVIRONMENT_SETUP.md) for detailed instructions on configuring environment variables and troubleshooting common issues like CORS problems.
-
-Quick start:
-```bash
-# Clone and install dependencies
-git clone https://github.com/usekaneo/kaneo.git
-cd kaneo
-pnpm install
-
-# Copy environment files
-cp apps/api/.env.sample apps/api/.env
-cp apps/web/.env.sample apps/web/.env
-
-# Update environment variables as needed
-# See ENVIRONMENT_SETUP.md for detailed instructions
-
-# Start development servers
-pnpm dev
-```
-
-## Migration from SQLite
-
-If you're upgrading from a previous version that used SQLite, you'll need to migrate your data to PostgreSQL. We recommend:
-
-1. **Export your data** from the old SQLite database
-2. **Set up PostgreSQL** using the new Docker Compose configuration
-3. **Import your data** into the new PostgreSQL database
-
-Contact us on [Discord](https://discord.gg/rU4tSyhXXU) if you need help with the migration process.
-
-## Community
-
-- **[Discord](https://discord.gg/rU4tSyhXXU)** - Chat with users and contributors
-- **[GitHub Issues](https://github.com/usekaneo/kaneo/issues)** - Bug reports and feature requests
-- **[Documentation](https://kaneo.app/quick-start)** - Detailed guides and API docs
+- **Cloud:** [Get started with Kaneo Cloud](https://cloud.kaneo.app).
+- **Self-hosted:** Follow the [installation guide](https://kaneo.app/docs/core/installation).
 
 ## Contributing
 
-We're always looking for help, whether that's:
-- Reporting bugs or suggesting features
-- Improving documentation
-- Contributing code
-- Helping other users on Discord
+Code, translations, documentation, and bug reports are welcome. Start with the [contributing guide](CONTRIBUTING.md) and [local development setup](ENVIRONMENT_SETUP.md). Pay particular attention to [contribution eligibility](https://github.com/usekaneo/kaneo/blob/main/CONTRIBUTING.md#contribution-eligibility).
 
-Check out [CONTRIBUTING.md](CONTRIBUTING.md) for the details on how to get involved.
+Join us on [Discord](https://discord.gg/rU4tSyhXXU), report bugs in [GitHub Issues](https://github.com/usekaneo/kaneo/issues), or submit and vote on feature requests at [Kaneo Feedback](https://feedback.kaneo.app).
+
+## Sponsors
+
+Kaneo is open source. If you find it useful, consider [sponsoring the project](https://github.com/sponsors/andrejsshell) to help support ongoing development.
+
+### Partners
+
+<p>
+  <img src="apps/site/public/images/blacksmith-powered.png" alt="CI powered by Blacksmith" width="368" />
+</p>
+
+This project is tested with BrowserStack.
+
+### Community sponsors
+
+<!-- sponsors --><a href="https://github.com/danielsada"><img src="https:&#x2F;&#x2F;github.com&#x2F;danielsada.png" width="60px" alt="User avatar: Daniel Sada" /></a><a href="https://github.com/randoneering"><img src="https:&#x2F;&#x2F;github.com&#x2F;randoneering.png" width="60px" alt="User avatar: (justin)randoneering" /></a><a href="https://github.com/barbanet"><img src="https:&#x2F;&#x2F;github.com&#x2F;barbanet.png" width="60px" alt="User avatar: Damián Culotta" /></a><a href="https://github.com/ryanilano"><img src="https:&#x2F;&#x2F;github.com&#x2F;ryanilano.png" width="60px" alt="User avatar: Ryan Ilano" /></a><a href="https://github.com/bojanmilevski"><img src="https:&#x2F;&#x2F;github.com&#x2F;bojanmilevski.png" width="60px" alt="User avatar: Bojan Milevski" /></a><!-- sponsors -->
 
 ## License
 
@@ -211,5 +80,5 @@ MIT License - see [LICENSE](LICENSE) for details.
 </div>
 
 <p align="center">
-  Built with ❤️ by the Kaneo team and <a href="#contributors">contributors</a>
+  Built with ❤️ by the Kaneo team and <a href="https://github.com/usekaneo/kaneo/graphs/contributors">contributors</a>
 </p>

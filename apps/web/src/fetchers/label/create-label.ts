@@ -1,22 +1,28 @@
 import { client } from "@kaneo/libs";
 import type { InferRequestType } from "hono/client";
+import { HttpError } from "@/lib/http-error";
 
 export type CreateLabelRequest = InferRequestType<
   (typeof client)["label"]["$post"]
 >["json"];
 
-async function createLabel({ name, color, taskId }: CreateLabelRequest) {
+async function createLabel({
+  name,
+  color,
+  taskId,
+  workspaceId,
+}: CreateLabelRequest) {
   const response = await client.label.$post({
     json: {
       name,
       color,
       taskId,
+      workspaceId,
     },
   });
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(error);
+    throw await HttpError.fromResponse(response);
   }
 
   const data = await response.json();

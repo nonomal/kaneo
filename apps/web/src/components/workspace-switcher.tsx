@@ -1,52 +1,75 @@
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronsUpDown, Plus } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import * as React from "react";
-
+import { useTranslation } from "react-i18next";
+import Search from "@/components/search";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "@/components/ui/menu";
 import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  useSidebar,
 } from "@/components/ui/sidebar";
-import { shortcuts } from "@/constants/shortcuts";
+import { Spinner } from "@/components/ui/spinner";
+import { UserAvatar } from "@/components/user-avatar";
+import useGetConfig from "@/hooks/queries/config/use-get-config";
+import useActiveWorkspace from "@/hooks/queries/workspace/use-active-workspace";
 import useGetWorkspaces from "@/hooks/queries/workspace/use-get-workspaces";
-import {
-  getModifierKeyText,
-  useRegisterShortcuts,
-} from "@/hooks/use-keyboard-shortcuts";
-import { useUserPreferencesStore } from "@/store/user-preferences";
-import useWorkspaceStore from "@/store/workspace";
+import { Kbd } from "@/components/ui/kbd";
+import { getModifierKeyText } from "@/lib/shortcuts/platform";
+import { useShortcut } from "@/lib/shortcuts/use-shortcut";
+import { authClient } from "@/lib/auth-client";
+import { hasInstanceAdminRole } from "@/lib/instance-admin";
 import type { Workspace } from "@/types/workspace";
 import CreateWorkspaceModal from "./shared/modals/create-workspace-modal";
 
 export function WorkspaceSwitcher() {
-  const { isMobile } = useSidebar();
-  const { workspace, setWorkspace } = useWorkspaceStore();
-  const { setActiveWorkspaceId } = useUserPreferencesStore();
+  const { t } = useTranslation();
+  const { data: workspace } = useActiveWorkspace();
+
   const { data: workspaces } = useGetWorkspaces();
+  const { data: session } = authClient.useSession();
+  const { data: config } = useGetConfig();
+  const isAdmin = hasInstanceAdminRole(session?.user?.role);
+  const canCreateWorkspace =
+    isAdmin || (config !== undefined && !config.disableWorkspaceCreation);
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = React.useState(false);
   const [isCreateWorkspaceModalOpen, setIsCreateWorkspaceModalOpen] =
     React.useState(false);
+  const [isSwitching, setIsSwitching] = React.useState(false);
 
   const handleWorkspaceChange = React.useCallback(
-    (selectedWorkspace: Workspace) => {
-      setWorkspace(selectedWorkspace);
-      setActiveWorkspaceId(selectedWorkspace.id);
-      navigate({
-        to: "/dashboard/workspace/$workspaceId",
-        params: { workspaceId: selectedWorkspace.id },
-      });
+    async (selectedWorkspace: Workspace) => {
+      if (isSwitching) return;
+
+      setIsSwitching(true);
+      try {
+        await authClient.organization.setActive({
+          organizationId: selectedWorkspace.id,
+        });
+
+        setTimeout(() => {
+          navigate({
+            to: "/dashboard/workspace/$workspaceId",
+            params: { workspaceId: selectedWorkspace.id },
+          });
+        }, 50);
+      } catch (error) {
+        console.error("Failed to switch workspace:", error);
+      } finally {
+        setTimeout(() => setIsSwitching(false), 100);
+      }
     },
-    [setWorkspace, setActiveWorkspaceId, navigate],
+    [navigate, isSwitching],
   );
 
   React.useEffect(() => {
@@ -61,7 +84,7 @@ export function WorkspaceSwitcher() {
         event.key <= "9"
       ) {
         event.preventDefault();
-        const index = Number.parseInt(event.key) - 1;
+        const index = Number.parseInt(event.key, 10) - 1;
         if (index < workspaces.length) {
           handleWorkspaceChange(workspaces[index]);
           setIsOpen(false);
@@ -73,107 +96,112 @@ export function WorkspaceSwitcher() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, workspaces, handleWorkspaceChange]);
 
-  useRegisterShortcuts({
-    sequentialShortcuts: {
-      [shortcuts.workspace.prefix]: {
-        [shortcuts.workspace.switch]: () => {
-          setIsOpen(true);
-        },
-        [shortcuts.workspace.create]: () => {
-          setIsCreateWorkspaceModalOpen(true);
-        },
-      },
-    },
-  });
+  useShortcut("switchWorkspace", () => setIsOpen(true));
 
   if (!workspace) {
     return null;
   }
 
   return (
-    <SidebarMenu>
-      <SidebarMenuItem>
-        <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
-          <DropdownMenuTrigger asChild>
-            <SidebarMenuButton
-              size="lg"
-              className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-            >
-              <div
-                className="bg-indigo-600 text-white flex aspect-square size-8 items-center justify-center rounded-lg"
-                style={{ backgroundColor: "#5463ff" }}
+    <>
+      <div className="flex items-center justify-between w-full gap-2">
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
+              <DropdownMenuTrigger
+                render={
+                  <SidebarMenuButton
+                    className="group h-8 w-full rounded-md px-2 text-sidebar-foreground data-[active=true]:bg-sidebar-accent/50"
+                    size="default"
+                  />
+                }
               >
-                <span className="text-sm font-semibold">
-                  {workspace.name.charAt(0).toUpperCase()}
-                </span>
-              </div>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">{workspace.name}</span>
-                <span className="truncate text-xs text-sidebar-foreground/70">
-                  {workspaces?.length || 0} workspace
-                  {workspaces?.length !== 1 ? "s" : ""}
-                </span>
-              </div>
-              <ChevronsUpDown className="ml-auto" />
-            </SidebarMenuButton>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
-            align="start"
-            side={isMobile ? "bottom" : "right"}
-            sideOffset={4}
-          >
-            <DropdownMenuLabel className="text-muted-foreground text-xs">
-              Workspaces
-            </DropdownMenuLabel>
-            {workspaces?.map((ws: Workspace, index: number) => (
-              <DropdownMenuItem
-                key={ws.id}
-                onClick={() => {
-                  handleWorkspaceChange(ws);
-                  setIsOpen(false);
-                }}
-                className="gap-2 p-2"
-              >
-                <div
-                  className="flex size-6 items-center justify-center rounded-md bg-indigo-600 dark:bg-indigo-400"
-                  style={{ backgroundColor: "#5463ff" }}
-                >
-                  <span className="text-xs font-medium text-white">
-                    {ws.name.charAt(0).toUpperCase()}
+                <div className="flex items-center min-w-0 w-full">
+                  <span
+                    className={`truncate text-sm font-medium text-foreground ${isSwitching ? "opacity-50" : ""}`}
+                  >
+                    {workspace.name}
                   </span>
                 </div>
-                {ws.name}
-                <span className="ml-auto text-xs text-muted-foreground">
-                  {getModifierKeyText()} {index > 8 ? "0" : index + 1}
-                </span>
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="gap-2 p-2"
-              onClick={() => {
-                setIsCreateWorkspaceModalOpen(true);
-              }}
-            >
-              <div
-                className="flex size-6 items-center justify-center rounded-md bg-indigo-600 dark:bg-indigo-400"
-                style={{ backgroundColor: "#5463ff" }}
+                {isSwitching ? (
+                  <Spinner className="ml-1 size-3.5 text-foreground/70" />
+                ) : (
+                  <ChevronDown
+                    className="ml-1 size-3.5 text-foreground/70 opacity-90 group-hover:opacity-100 data-[state=open]:opacity-100 data-[state=open]:rotate-180 transition-[rotate,opacity] duration-200 ease-out"
+                    data-state={isOpen ? "open" : "closed"}
+                  />
+                )}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                className="min-w-(--anchor-width) text-sidebar-foreground"
+                align="start"
+                side="bottom"
+                sideOffset={4}
               >
-                <Plus className="size-4 text-white" />
-              </div>
-              <div className="text-muted-foreground font-medium">
-                Add workspace
-              </div>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </SidebarMenuItem>
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel>
+                    {t("navigation:workspaceSwitcher.workspaces")}
+                  </DropdownMenuLabel>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+
+                {workspaces?.map((ws: Workspace, index: number) => (
+                  <DropdownMenuItem
+                    key={ws.id}
+                    onClick={() => {
+                      if (!isSwitching && ws.id !== workspace.id) {
+                        handleWorkspaceChange(ws);
+                        setIsOpen(false);
+                      }
+                    }}
+                    disabled={isSwitching || ws.id === workspace.id}
+                    className="h-7 text-sm data-highlighted:bg-sidebar-accent data-highlighted:text-sidebar-accent-foreground"
+                  >
+                    <span className="flex-1 text-left">
+                      {isSwitching && ws.id === workspace?.id
+                        ? t("navigation:workspaceSwitcher.switching")
+                        : ws.name}
+                    </span>
+                    <DropdownMenuShortcut className="gap-0.5">
+                      <Kbd tone="muted">{getModifierKeyText()}</Kbd>
+                      <Kbd tone="muted">{index > 8 ? "0" : index + 1}</Kbd>
+                    </DropdownMenuShortcut>
+                  </DropdownMenuItem>
+                ))}
+
+                {canCreateWorkspace && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setIsCreateWorkspaceModalOpen(true);
+                        setIsOpen(false);
+                      }}
+                      className="h-7 text-sm data-highlighted:bg-sidebar-accent data-highlighted:text-sidebar-accent-foreground"
+                    >
+                      <span>
+                        {t("navigation:workspaceSwitcher.addWorkspace")}
+                      </span>
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </SidebarMenuItem>
+        </SidebarMenu>
+
+        <div className="flex items-center gap-0.5">
+          <Search />
+          <div className="h-8 w-8 shrink-0">
+            <UserAvatar />
+          </div>
+        </div>
+      </div>
 
       <CreateWorkspaceModal
         open={isCreateWorkspaceModalOpen}
         onClose={() => setIsCreateWorkspaceModalOpen(false)}
       />
-    </SidebarMenu>
+    </>
   );
 }

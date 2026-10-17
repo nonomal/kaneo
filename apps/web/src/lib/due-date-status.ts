@@ -4,8 +4,28 @@ export type DueDateStatus =
   | "far-future"
   | "no-due-date";
 
-export function getDueDateStatus(dueDate: string | null): DueDateStatus {
+type CompletionColumn = { slug: string; isFinal: boolean };
+
+// Columns are user-configurable, so completion comes from the column's isFinal
+// flag. The slug check is the fallback for surfaces that render before columns
+// load, or that never have them.
+export function isTaskCompleted(
+  status: string,
+  columns?: CompletionColumn[],
+): boolean {
+  if (columns?.length) {
+    return columns.find((column) => column.slug === status)?.isFinal ?? false;
+  }
+  return status === "done" || status === "archived";
+}
+
+export function getDueDateStatus(
+  dueDate: string | null,
+  isCompleted = false,
+): DueDateStatus {
   if (!dueDate) return "no-due-date";
+  // A finished task cannot be late, so it keeps the neutral badge.
+  if (isCompleted) return "far-future";
 
   const now = new Date();
   const due = new Date(dueDate);
@@ -19,13 +39,10 @@ export function getDueDateStatus(dueDate: string | null): DueDateStatus {
 }
 
 export const dueDateStatusColors = {
-  overdue: "text-red-500 dark:text-red-400 bg-red-50/50 dark:bg-red-950/20",
-  "due-soon":
-    "text-orange-500 dark:text-orange-400 bg-orange-50/50 dark:bg-orange-950/20",
-  "far-future":
-    "text-zinc-500 dark:text-zinc-400 bg-zinc-50/50 dark:bg-zinc-800/30",
-  "no-due-date":
-    "text-zinc-500 dark:text-zinc-400 bg-zinc-50/50 dark:bg-zinc-800/30",
+  overdue: "bg-destructive/10 text-destructive-foreground",
+  "due-soon": "bg-warning/10 text-warning-foreground",
+  "far-future": "bg-muted/50 text-muted-foreground",
+  "no-due-date": "bg-muted/50 text-muted-foreground",
 } as const;
 
 export const dueDateStatusIcons = {

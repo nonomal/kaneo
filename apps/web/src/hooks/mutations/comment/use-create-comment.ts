@@ -1,9 +1,13 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import createComment from "@/fetchers/comment/create-comment";
-import { useMutation } from "@tanstack/react-query";
 
 function useCreateComment() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: createComment,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["workspace-activity"] });
+    },
   });
 }
 

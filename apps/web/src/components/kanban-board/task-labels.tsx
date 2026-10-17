@@ -1,64 +1,42 @@
-import { Badge } from "@/components/ui/badge";
-import useGetLabelsByTask from "@/hooks/queries/label/use-get-labels-by-task";
+import { useTranslation } from "react-i18next";
+import { localeCompareSort } from "@/lib/format";
+import { resolveLabelColor } from "@/lib/label-color";
+import type Task from "@/types/task";
 
-const labelColors = [
-  { value: "gray", label: "Grey", color: "#94a3b8" },
-  { value: "dark-gray", label: "Dark Grey", color: "#64748b" },
-  { value: "purple", label: "Purple", color: "#a855f7" },
-  { value: "teal", label: "Teal", color: "#14b8a6" },
-  { value: "green", label: "Green", color: "#22c55e" },
-  { value: "yellow", label: "Yellow", color: "#eab308" },
-  { value: "orange", label: "Orange", color: "#f97316" },
-  { value: "pink", label: "Pink", color: "#ec4899" },
-  { value: "red", label: "Red", color: "#ef4444" },
-];
-
-type LabelColor =
-  | "gray"
-  | "dark-gray"
-  | "purple"
-  | "teal"
-  | "green"
-  | "yellow"
-  | "orange"
-  | "pink"
-  | "red";
-
-type Label = {
-  id: string;
-  name: string;
-  color: string;
-  taskId: string;
-  createdAt: string;
-};
-
-function TaskCardLabels({ taskId }: { taskId: string }) {
-  const { data: labels = [] } = useGetLabelsByTask(taskId);
+export function TaskLabels({
+  labels,
+}: {
+  labels: NonNullable<Task["labels"]>;
+}) {
+  const { i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage || i18n.language;
 
   if (!labels.length) return null;
 
+  const sortedLabels = [...labels].sort((a, b) =>
+    localeCompareSort(a.name, b.name, locale),
+  );
+
   return (
-    <div className="flex flex-wrap gap-1">
-      {labels.map((label: Label) => (
-        <Badge
+    <div className="flex min-w-0 flex-wrap gap-x-2.5 gap-y-1">
+      {sortedLabels.map((label) => (
+        <span
           key={label.id}
-          badgeColor={label.color as LabelColor}
-          variant="outline"
-          className="px-2 py-0.5 text-[10px] flex items-center"
+          data-slot="task-label"
+          className="flex max-w-full min-w-0 items-center gap-1.5 font-medium text-[10px] text-foreground/85"
         >
           <span
-            className="inline-block w-1.5 h-1.5 mr-1 rounded-full"
+            aria-hidden="true"
+            className="inline-block size-1.5 shrink-0 rounded-full"
             style={{
-              backgroundColor:
-                labelColors.find((c) => c.value === label.color)?.color ||
-                "#94a3b8",
+              backgroundColor: resolveLabelColor(label.color),
             }}
           />
-          <span className="truncate max-w-[80px]">{label.name}</span>
-        </Badge>
+          <span className="min-w-0 truncate" title={label.name}>
+            {label.name}
+          </span>
+        </span>
       ))}
     </div>
   );
 }
-
-export default TaskCardLabels;

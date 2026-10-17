@@ -1,4 +1,5 @@
 import { AlertTriangle, ExternalLink, RefreshCw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   getCorsTroubleshootingSteps,
   getNetworkTroubleshootingSteps,
@@ -13,20 +14,22 @@ import {
   CardTitle,
 } from "./card";
 
-interface ErrorDisplayProps {
+type ErrorDisplayProps = {
   error: unknown;
   onRetry?: () => void;
   title?: string;
   className?: string;
-}
+};
 
 export function ErrorDisplay({
   error,
   onRetry,
-  title = "Something went wrong",
+  title,
   className,
 }: ErrorDisplayProps) {
+  const { t } = useTranslation();
   const parsedError = parseApiError(error);
+  const resolvedTitle = title ?? t("common:error.title");
 
   const getTroubleshootingSteps = () => {
     switch (parsedError.type) {
@@ -47,30 +50,25 @@ export function ErrorDisplay({
     >
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="mx-auto w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mb-4">
-            <AlertTriangle className="w-6 h-6 text-red-600 dark:text-red-400" />
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/12">
+            <AlertTriangle className="h-6 w-6 text-destructive-foreground" />
           </div>
-          <CardTitle className="text-lg">{title}</CardTitle>
+          <CardTitle className="text-lg">{resolvedTitle}</CardTitle>
           <CardDescription className="text-sm">
-            {parsedError.message}
+            {t(parsedError.message)}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {troubleshootingSteps.length > 0 && (
             <div className="space-y-2">
-              <h4 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                Troubleshooting steps:
+              <h4 className="text-sm font-medium text-foreground">
+                {t("common:error.troubleshooting")}
               </h4>
-              <ul className="text-xs text-zinc-600 dark:text-zinc-400 space-y-1">
-                {troubleshootingSteps.map((step, index) => (
-                  <li
-                    key={`step-${index}-${step.slice(0, 10)}`}
-                    className="flex items-start gap-2"
-                  >
-                    <span className="text-zinc-400 dark:text-zinc-500 mt-0.5">
-                      •
-                    </span>
-                    <span>{step}</span>
+              <ul className="text-xs text-muted-foreground space-y-1">
+                {troubleshootingSteps.map((step) => (
+                  <li key={step} className="flex items-start gap-2">
+                    <span className="text-muted-foreground mt-0.5">•</span>
+                    <span>{t(step)}</span>
                   </li>
                 ))}
               </ul>
@@ -86,7 +84,7 @@ export function ErrorDisplay({
                 className="w-full"
               >
                 <RefreshCw className="w-4 h-4 mr-2" />
-                Try Again
+                {t("common:error.tryAgain")}
               </Button>
             )}
 
@@ -98,7 +96,7 @@ export function ErrorDisplay({
                 className="w-full"
               >
                 <ExternalLink className="w-4 h-4 mr-2" />
-                View Deployment Guide
+                {t("common:error.viewDeploymentGuide")}
               </Button>
             )}
 
@@ -109,7 +107,7 @@ export function ErrorDisplay({
               className="w-full"
             >
               <RefreshCw className="w-4 h-4 mr-2" />
-              Refresh Page
+              {t("common:error.refreshPage")}
             </Button>
           </div>
         </CardContent>

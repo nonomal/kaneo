@@ -1,22 +1,21 @@
 import { client } from "@kaneo/libs";
 import type { InferRequestType } from "hono/client";
+import { HttpError } from "@/lib/http-error";
 
 export type UpdateCommentRequest = InferRequestType<
   (typeof client)["activity"]["comment"]["$put"]
 >["json"];
 
-async function updateComment({ id, content, userId }: UpdateCommentRequest) {
+async function updateComment({ activityId, comment }: UpdateCommentRequest) {
   const response = await client.activity.comment.$put({
     json: {
-      id,
-      content,
-      userId,
+      activityId,
+      comment,
     },
   });
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(error);
+    throw await HttpError.fromResponse(response);
   }
 
   const data = await response.json();
